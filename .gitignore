@@ -1,0 +1,10 @@
+
+results
+
+libs/GANet/build/
+
+libs/sync_bn/build/
+
+libs/depth_util/depth_util.egg-info
+
+*.pyc

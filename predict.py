@@ -29,6 +29,7 @@ parser.add_argument('--resume', type=str, default='', help="resume from saved mo
 parser.add_argument('--cuda', type=bool, default=True, help='use cuda?')
 parser.add_argument('--kitti', type=int, default=0, help='kitti dataset? Default=False')
 parser.add_argument('--kitti2015', type=int, default=0, help='kitti 2015? Default=False')
+parser.add_argument('--airsim_fmt', type=int, default=0, help='Is it AirSim dataset? Default=False')
 parser.add_argument('--data_path', type=str, required=True, help="data root")
 parser.add_argument('--test_list', type=str, required=True, help="training list")
 parser.add_argument('--save_path', type=str, default='./result/', help="location to save result")
@@ -148,9 +149,13 @@ if __name__ == "__main__":
         if opt.kitti2015:
             leftname = file_path + 'image_2/' + current_file[0: len(current_file) - 1]
             rightname = file_path + 'image_3/' + current_file[0: len(current_file) - 1]
-        if opt.kitti:
+        elif opt.kitti:
             leftname = file_path + 'colored_0/' + current_file[0: len(current_file) - 1]
             rightname = file_path + 'colored_1/' + current_file[0: len(current_file) - 1]
+        elif opt.airsim_fmt:
+            leftname = file_path + 'img_left/' + current_file[0: len(current_file) - 1]
+            rightname = file_path + 'img_right/' + current_file[0: len(current_file) - 1]
+            
 
         savename = opt.save_path + current_file[0: len(current_file) - 1]
         test(leftname, rightname, savename)
