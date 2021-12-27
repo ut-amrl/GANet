@@ -277,22 +277,52 @@ def load_airsim_data(file_path, current_file, scale_factor):
   r = left[:, :, 0]
   g = left[:, :, 1]
   b = left[:, :, 2]
+  r_std = np.std(r[:])
+  g_std = np.std(g[:])
+  b_std = np.std(b[:])
 
-  temp_data[0, :, :] = (r - np.mean(r[:])) / np.std(r[:])
-  temp_data[1, :, :] = (g - np.mean(g[:])) / np.std(g[:])
-  temp_data[2, :, :] = (b - np.mean(b[:])) / np.std(b[:])
+  if r_std > 0:
+    temp_data[0, :, :] = (r - np.mean(r[:])) / r_std
+  else:
+    temp_data[0, :, :] = r - np.mean(r[:])
+
+  if g_std > 0:
+    temp_data[1, :, :] = (g - np.mean(g[:])) / g_std
+  else:
+    temp_data[1, :, :] = g - np.mean(g[:])
+
+  if b_std > 0:
+    temp_data[2, :, :] = (b - np.mean(b[:])) / b_std
+  else:
+    temp_data[2, :, :] = b - np.mean(b[:])
+
   r = right[:, :, 0]
   g = right[:, :, 1]
   b = right[:, :, 2]
+  r_std = np.std(r[:])
+  g_std = np.std(g[:])
+  b_std = np.std(b[:])
 
-  temp_data[3, :, :] = (r - np.mean(r[:])) / np.std(r[:])
-  temp_data[4, :, :] = (g - np.mean(g[:])) / np.std(g[:])
-  temp_data[5, :, :] = (b - np.mean(b[:])) / np.std(b[:])
+  if r_std > 0:
+    temp_data[3, :, :] = (r - np.mean(r[:])) / r_std
+  else:
+    temp_data[3, :, :] = r - np.mean(r[:])
+
+  if g_std > 0:
+    temp_data[4, :, :] = (g - np.mean(g[:])) / g_std
+  else:
+    temp_data[4, :, :] = g - np.mean(g[:])
+
+  if b_std > 0:
+    temp_data[5, :, :] = (b - np.mean(b[:])) / b_std
+  else:
+    temp_data[5, :, :] = b - np.mean(b[:])
+
   temp_data[6: 7, :, :] = width * 2
   temp_data[6, :, :] = disp_left[:, :]
   temp = temp_data[6, :, :]
   temp[temp < 0.1] = width * 2 * 256
-  temp_data[6, :, :] = temp * scale_factor / 256.
+  temp_data[6, :, :] = temp / 256.
 
   return temp_data
 
@@ -340,7 +370,7 @@ class DatasetFromSessionList(data.Dataset):
   as opposed to list of individual files.
   """
 
-  def __init__(self, session_list, crop_size=[256, 256], training=True, left_right=False, airsim=False, shift=0, scale_factor=1.0):
+  def __init__(self, session_list, crop_size=[256, 256], training=True, left_right=False, airsim=False, shift=0, scale_factor=1.0, subsample_factor=1):
     super(DatasetFromSessionList, self).__init__()
     f = open(session_list, 'r')
     self.session_list = f.readlines()
@@ -367,6 +397,14 @@ class DatasetFromSessionList(data.Dataset):
       left_img_dir_path = os.path.join(session, self.left_img_folder_name)
       files = [f for f in os.listdir(
           left_img_dir_path) if os.path.isfile(os.path.join(left_img_dir_path, f))]
+
+      # Subsample files
+      if subsample_factor < 1.0:
+        # Sort the files in ascending order
+        files.sort()
+        sample_distance = int(1.0 / subsample_factor)
+        files = files[::sample_distance]
+
       data_paths = [session for f in files]
       self.file_name_list += files
       self.data_path_list += data_paths

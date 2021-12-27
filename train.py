@@ -13,7 +13,7 @@ import torch.backends.cudnn as cudnn
 import torch.optim as optim
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
-#from models.GANet_deep import GANet
+# from models.GANet_deep import GANet
 import torch.nn.functional as F
 from dataloader.data import get_training_set, get_test_set
 
@@ -21,7 +21,7 @@ from dataloader.data import get_training_set, get_test_set
 parser = argparse.ArgumentParser(description='PyTorch GANet Example')
 parser.add_argument('--crop_height', type=int,
                     required=True, help="crop height")
-parser.add_argument('--max_disp', type=int, default=192, help="max disp")
+parser.add_argument('--max_disp', type=int, default=192, help="max disparity value used to normalize the original disparity images in the dataset. Use the same value used to produce the training dataset using the generate_depth_from_disparity.py script. If images are resized, max_disp will also be automatically scaled by the program. Default: 192")
 parser.add_argument('--crop_width', type=int, required=True, help="crop width")
 parser.add_argument('--resume', type=str, default='',
                     help="resume from saved model")
@@ -51,6 +51,8 @@ parser.add_argument('--airsim', type=int, default=0,
                     help='Is the dataset airsim formatted? Default=False')
 parser.add_argument('--scale_factor', type=float, default=1.0,
                     help='scaling factor for the images')
+parser.add_argument('--subsample_factor', type=float, default=1.0,
+                    help='Subsampling factor for the images. Note: It is only applied to the airsim formatted dataset.')
 parser.add_argument('--data_path', type=str,
                     default='/ssd1/zhangfeihu/data/stereo/', help="data root")
 parser.add_argument('--training_list', type=str,
@@ -63,6 +65,8 @@ parser.add_argument('--model', type=str,
                     default='GANet_deep', help="model to train")
 
 opt = parser.parse_args()
+opt.max_disp = int(opt.scale_factor * opt.max_disp)
+print("Effective max disp: ", opt.max_disp)
 
 print(opt)
 if opt.model == 'GANet11':
@@ -87,9 +91,9 @@ if cuda:
 
 print('===> Loading datasets')
 train_set = get_training_set(opt.data_path, opt.training_list, [
-                             opt.crop_height, opt.crop_width], opt.left_right, opt.kitti, opt.kitti2015, opt.airsim, opt.shift, opt.scale_factor)
+    opt.crop_height, opt.crop_width], opt.left_right, opt.kitti, opt.kitti2015, opt.airsim, opt.shift, opt.scale_factor, opt.subsample_factor)
 test_set = get_test_set(opt.data_path, opt.val_list, [
-                        576, 960], opt.left_right, opt.kitti, opt.kitti2015, opt.airsim, opt.scale_factor)
+    576, 960], opt.left_right, opt.kitti, opt.kitti2015, opt.airsim, opt.scale_factor, opt.subsample_factor)
 training_data_loader = DataLoader(
     dataset=train_set, num_workers=opt.threads, batch_size=opt.batchSize, shuffle=True, drop_last=True)
 testing_data_loader = DataLoader(
@@ -101,6 +105,9 @@ model = GANet(opt.max_disp)
 criterion = MyLoss2(thresh=3, alpha=2)
 if cuda:
   model = torch.nn.DataParallel(model).cuda()
+  # device = torch.device("cuda:0")
+  # model = torch.nn.DataParallel(model).to(device)
+
 optimizer = optim.Adam(model.parameters(), lr=opt.lr, betas=(0.9, 0.999))
 if opt.resume:
   if os.path.isfile(opt.resume):
