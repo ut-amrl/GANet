@@ -9,9 +9,9 @@ def get_training_set(data_path, train_list, crop_size=[256, 256], left_right=Fal
                            crop_size, True, left_right, kitti, kitti2015, shift)
 
 
-def get_test_set(data_path, test_list, crop_size=[256, 256], left_right=False, kitti=False, kitti2015=False, airsim=False, scale_factor=1.0, subsample_factor=1.0):
+def get_test_set(data_path, test_list, crop_size=[256, 256], left_right=False, kitti=False, kitti2015=False, airsim=False, scale_factor=1.0, subsample_factor=1.0, return_info=False):
   if airsim:
-    return DatasetFromSessionList(test_list, crop_size, False, left_right, airsim, scale_factor, subsample_factor)
+    return DatasetFromSessionList(test_list, crop_size, False, left_right, airsim, 0, scale_factor, subsample_factor, return_info)
   else:
     return DatasetFromList(data_path, test_list,
                            crop_size, False, left_right, kitti, kitti2015)

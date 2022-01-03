@@ -370,7 +370,7 @@ class DatasetFromSessionList(data.Dataset):
   as opposed to list of individual files.
   """
 
-  def __init__(self, session_list, crop_size=[256, 256], training=True, left_right=False, airsim=False, shift=0, scale_factor=1.0, subsample_factor=1):
+  def __init__(self, session_list, crop_size=[256, 256], training=True, left_right=False, airsim=False, shift=0, scale_factor=1.0, subsample_factor=1, return_info=False):
     super(DatasetFromSessionList, self).__init__()
     f = open(session_list, 'r')
     self.session_list = f.readlines()
@@ -385,6 +385,7 @@ class DatasetFromSessionList(data.Dataset):
     self.data_path_list = []
     self.file_name_list = []
     self.left_img_folder_name = "img_left"
+    self.return_info = return_info
 
     if airsim != True:
       print("ERROR: DatasetFromSessionList is only for airsim format dataset")
@@ -417,6 +418,8 @@ class DatasetFromSessionList(data.Dataset):
       print("ERROR: DatasetFromSessionList is only for airsim format dataset")
       exit()
 
+    image_size = [temp_data.shape[1], temp_data.shape[2]]
+
     if self.training:
       input1, input2, target = train_transform(
           temp_data, self.crop_height, self.crop_width, self.left_right, self.shift)
@@ -424,7 +427,18 @@ class DatasetFromSessionList(data.Dataset):
     else:
       input1, input2, target = test_transform(
           temp_data, self.crop_height, self.crop_width)
-      return input1, input2, target
+      if self.return_info:
+        sample = {
+            'input1': input1,
+            'input2': input2,
+            'target': target,
+            'data_path': self.data_path_list[index],
+            'file_name': self.file_name_list[index],
+            'image_size': image_size
+        }
+        return sample
+      else:
+        return input1, input2, target
 
   def __len__(self):
     return len(self.file_name_list)

@@ -4,6 +4,7 @@ from math import log10
 
 from libs.GANet.modules.GANet import MyLoss2
 import sys
+import math
 import shutil
 import os
 import torch
@@ -16,6 +17,11 @@ from torch.utils.data import DataLoader
 # from models.GANet_deep import GANet
 import torch.nn.functional as F
 from dataloader.data import get_training_set, get_test_set
+
+
+def find_least_multiple_larger_than(thresh, divisor):
+  return int(math.ceil(thresh / divisor) * divisor)
+
 
 # Training settings
 parser = argparse.ArgumentParser(description='PyTorch GANet Example')
@@ -33,6 +39,8 @@ parser.add_argument('--testBatchSize', type=int,
                     default=1, help='testing batch size')
 parser.add_argument('--nEpochs', type=int, default=2048,
                     help='number of epochs to train for')
+parser.add_argument('--startEpoch', type=int, default=1,
+                    help='number of start epoch')
 parser.add_argument('--lr', type=float, default=0.001,
                     help='Learning Rate. Default=0.001')
 parser.add_argument('--cuda', type=int, default=1,
@@ -51,8 +59,10 @@ parser.add_argument('--airsim', type=int, default=0,
                     help='Is the dataset airsim formatted? Default=False')
 parser.add_argument('--scale_factor', type=float, default=1.0,
                     help='scaling factor for the images')
-parser.add_argument('--subsample_factor', type=float, default=1.0,
-                    help='Subsampling factor for the images. Note: It is only applied to the airsim formatted dataset.')
+parser.add_argument('--subsample_factor_train', type=float, default=1.0,
+                    help='Subsampling factor for the training set images. Note: It is only applied to the airsim formatted dataset.')
+parser.add_argument('--subsample_factor_val', type=float, default=1.0,
+                    help='Subsampling factor for the validation set images. Note: It is only applied to the airsim formatted dataset.')
 parser.add_argument('--data_path', type=str,
                     default='/ssd1/zhangfeihu/data/stereo/', help="data root")
 parser.add_argument('--training_list', type=str,
@@ -65,8 +75,23 @@ parser.add_argument('--model', type=str,
                     default='GANet_deep', help="model to train")
 
 opt = parser.parse_args()
-opt.max_disp = int(opt.scale_factor * opt.max_disp)
-print("Effective max disp: ", opt.max_disp)
+
+# Adjust the max disparity value based on the scaling factor
+adjusted_max_disp = int(opt.scale_factor * opt.max_disp)
+adjusted_max_disp = find_least_multiple_larger_than(adjusted_max_disp, 12)
+opt.max_disp = adjusted_max_disp
+print("Adjusted max disp: ", opt.max_disp)
+
+# Adjust the height and width cropping values based on the scaling factor
+adjusted_crop_height = int(opt.scale_factor * opt.crop_height)
+adjusted_crop_width = int(opt.scale_factor * opt.crop_width)
+adjusted_crop_height = find_least_multiple_larger_than(
+    adjusted_crop_height, 48)
+adjusted_crop_width = find_least_multiple_larger_than(adjusted_crop_width, 48)
+opt.crop_height = adjusted_crop_height
+opt.crop_width = adjusted_crop_width
+print("Adjusted crop height: ", opt.crop_height)
+print("Adjusted crop width: ", opt.crop_width)
 
 print(opt)
 if opt.model == 'GANet11':
@@ -91,9 +116,9 @@ if cuda:
 
 print('===> Loading datasets')
 train_set = get_training_set(opt.data_path, opt.training_list, [
-    opt.crop_height, opt.crop_width], opt.left_right, opt.kitti, opt.kitti2015, opt.airsim, opt.shift, opt.scale_factor, opt.subsample_factor)
+    opt.crop_height, opt.crop_width], opt.left_right, opt.kitti, opt.kitti2015, opt.airsim, opt.shift, opt.scale_factor, opt.subsample_factor_train)
 test_set = get_test_set(opt.data_path, opt.val_list, [
-    576, 960], opt.left_right, opt.kitti, opt.kitti2015, opt.airsim, opt.scale_factor, opt.subsample_factor)
+    opt.crop_height, opt.crop_width], opt.left_right, opt.kitti, opt.kitti2015, opt.airsim, opt.scale_factor, opt.subsample_factor_val)
 training_data_loader = DataLoader(
     dataset=train_set, num_workers=opt.threads, batch_size=opt.batchSize, shuffle=True, drop_last=True)
 testing_data_loader = DataLoader(
@@ -209,10 +234,10 @@ def val():
         error2 = torch.mean(torch.abs(disp2[mask] - target[mask]))
         valid_iteration += 1
         epoch_error2 += error2.item()
-        print("===> Test({}/{}): Error: ({:.4f})".format(iteration,
+        print("===> Test({}/{}): Error: ({:.6f})".format(iteration,
               len(testing_data_loader), error2.item()))
 
-  print("===> Test: Avg. Error: ({:.4f})".format(
+  print("===> Test: Avg. Error: ({:.6f})".format(
       epoch_error2 / valid_iteration))
   return epoch_error2 / valid_iteration
 
@@ -237,7 +262,7 @@ def adjust_learning_rate(optimizer, epoch):
 
 if __name__ == '__main__':
   error = 100
-  for epoch in range(1, opt.nEpochs + 1):
+  for epoch in range(opt.startEpoch, opt.nEpochs + opt.startEpoch):
     #        if opt.kitti or opt.kitti2015:
     adjust_learning_rate(optimizer, epoch)
     train(epoch)
