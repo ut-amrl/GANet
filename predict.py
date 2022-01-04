@@ -35,8 +35,14 @@ parser.add_argument('--crop_height', type=int,
                     required=True, help="crop height")
 parser.add_argument('--crop_width', type=int, required=True, help="crop width")
 parser.add_argument('--max_disp', type=int, default=192, help="max disp")
-parser.add_argument('--resume', type=str, default='',
-                    help="resume from saved model")
+# parser.add_argument('--model_paths', type=str, default='',
+# help="model_paths from saved model")
+parser.add_argument(
+    "--model_paths",
+    nargs="+",
+    default=[""],
+    required=True,
+    help="The path to the model to be loaded or the list of paths to an ensemble of models")
 parser.add_argument('--cuda', type=bool, default=True, help='use cuda?')
 parser.add_argument('--threads', type=int, default=1,
                     help='number of threads for data loader to use')
@@ -100,20 +106,23 @@ test_set = get_test_set(opt.data_path, opt.test_list, [
 testing_data_loader = DataLoader(
     dataset=test_set, num_workers=opt.threads, batch_size=opt.batchSize, shuffle=False)
 
-print('===> Building model')
-model = GANet(opt.max_disp)
+models = []
+if len(opt.model_paths) >= 1:
+  for model_path in opt.model_paths:
+    print('===> Building model')
+    model = GANet(opt.max_disp)
 
-if cuda:
-  model = torch.nn.DataParallel(model).cuda()
+    if cuda:
+      model = torch.nn.DataParallel(model).cuda()
 
-if opt.resume:
-  if os.path.isfile(opt.resume):
-    print("=> loading checkpoint '{}'".format(opt.resume))
-    checkpoint = torch.load(opt.resume)
+    print("=> loading checkpoint '{}'".format(model_path))
+    checkpoint = torch.load(model_path)
     model.load_state_dict(checkpoint['state_dict'], strict=False)
+    models.append(model)
 
-  else:
-    print("=> no checkpoint found at '{}'".format(opt.resume))
+else:
+  print("No model path was provided. Please provide a model path.")
+  exit()
 
 
 def load_and_scale_img(img_path, scale_factor):
@@ -125,11 +134,11 @@ def load_and_scale_img(img_path, scale_factor):
   return rgb_img
 
 
-def save_prediction_images(prediction, target, input, mask, data_path, file_name, output_path, original_image_size):
-  prediction = prediction.cpu().detach().numpy()
-  target = target.cpu().detach().numpy()
+def save_prediction_images(prediction, target, input, mask, data_path, file_name, output_path, original_image_size, uncertainty_img=None):
+  # prediction = prediction.cpu().detach().numpy()
+  # target = target.cpu().detach().numpy()
   input = input.cpu().detach().numpy()
-  mask = mask.cpu().detach().numpy()
+  # mask = mask.cpu().detach().numpy()
   prediction[prediction < 0] = 0
 
   # Loop through images in the batch and save them to file
@@ -155,7 +164,14 @@ def save_prediction_images(prediction, target, input, mask, data_path, file_name
                         opt.crop_width - width: opt.crop_width]
       mask_img = mask_img[opt.crop_height - height: opt.crop_height,
                           opt.crop_width - width: opt.crop_width]
+      if uncertainty_img is not None:
+        unc_img = uncertainty_img[i, :, :]
+        unc_img = unc_img[
+            opt.crop_height - height: opt.crop_height,
+            opt.crop_width - width: opt.crop_width]
 
+    # -------
+    # Overlay the error image on the input RGB image
     err_img = np.abs(gt_disp - pred_disp)
     err_img = colorize(
         err_img, plt.get_cmap('viridis'), 0, 0.1)
@@ -171,6 +187,22 @@ def save_prediction_images(prediction, target, input, mask, data_path, file_name
     cv2.addWeighted(err_img, alpha, input_img_err_overlaid, 1 - alpha,
                     0, input_img_err_overlaid)
 
+    # -------
+    # Overlay the uncertainty image on the input RGB image
+    if uncertainty_img is not None:
+      unc_img = colorize(
+          unc_img, plt.get_cmap('viridis'), 0, 1e-1)
+      unc_img = np.uint8(unc_img * 255)
+      input_img_uncertainty_overlaid = cv2.cvtColor(
+          input_img_gray, cv2.COLOR_GRAY2RGBA)
+
+      alpha = 0.5
+      input_img_uncertainty_overlaid = input_img_uncertainty_overlaid.astype(
+          np.uint8)
+      cv2.addWeighted(unc_img,
+                      alpha, input_img_uncertainty_overlaid, 1 - alpha,
+                      0, input_img_uncertainty_overlaid)
+
     # TODO: mask out the pixels in input_img_err_overlaid that are not in the mask
 
     # Save images to file
@@ -180,26 +212,41 @@ def save_prediction_images(prediction, target, input, mask, data_path, file_name
     output_dir_disp_pred = os.path.join(output_path, folder_name, 'disp_pred')
     output_dir_err_overlaid = os.path.join(
         output_path, folder_name, 'err_vis')
+    output_dir_unc_overlaid = os.path.join(
+        output_path, folder_name, 'uncertainty_vis')
     if not os.path.exists(output_dir_disp_pred):
       os.makedirs(output_dir_disp_pred)
     if not os.path.exists(output_dir_err_overlaid):
       os.makedirs(output_dir_err_overlaid)
+    if not os.path.exists(output_dir_unc_overlaid) and uncertainty_img is not None:
+      os.makedirs(output_dir_unc_overlaid)
     output_path_disp_pred = os.path.join(output_dir_disp_pred, file_name[i])
     output_path_err_overlaid = os.path.join(
         output_dir_err_overlaid, file_name[i])
+    output_path_unc_overlaid = os.path.join(
+        output_dir_unc_overlaid, file_name[i])
 
     skimage.io.imsave(output_path_disp_pred,
                       (pred_disp * 256).astype('uint16'))
     skimage.io.imsave(output_path_err_overlaid,
                       input_img_err_overlaid)
+    if uncertainty_img is not None:
+      skimage.io.imsave(output_path_unc_overlaid,
+                        input_img_uncertainty_overlaid)
 
 
 if __name__ == "__main__":
   SAVE_PREDICTION_IMAGES = True
 
+  if len(models) > 1:
+    is_ensemble = True
+    print("Running ensemble model")
+
+  for model in models:
+    model.eval()
+
   epoch_error = 0
   valid_iteration = 0
-  model.eval()
   for iteration, batch in enumerate(testing_data_loader):
     input1, input2, target = Variable(batch['input1'], requires_grad=False), Variable(
         batch['input2'], requires_grad=False), Variable(batch['target'], requires_grad=False)
@@ -212,18 +259,42 @@ if __name__ == "__main__":
     mask = target < opt.max_disp
     mask.detach_()
     valid = target[mask].size()[0]
+
+    ensemble_pred_size = tuple([len(models)] + list(target.size()))
+    ensemble_prediction = np.zeros(ensemble_pred_size, dtype=np.float32)
     if valid > 0:
       with torch.no_grad():
-        disp2 = model(input1, input2)
-        error2 = torch.mean(torch.abs(disp2[mask] - target[mask]))
+        if is_ensemble:
+          target = target.cpu().detach().numpy()
+          mask = mask.cpu().detach().numpy()
+          i = 0
+          for model in models:
+
+            disp2 = model(input1, input2)
+            disp2 = disp2.cpu().detach().numpy()
+            ensemble_prediction[i, :, :, :] = disp2
+            i += 1
+          prediction = np.mean(ensemble_prediction, axis=0)
+          error2 = np.mean(np.abs(prediction[mask] - target[mask]))
+          unc_img = np.std(ensemble_prediction, axis=0)
+
+        else:
+          prediction = model(input1, input2)
+          error2 = torch.mean(torch.abs(prediction[mask] - target[mask]))
+          epoch_error += error2.item()
+          prediction = prediction.cpu().detach().numpy()
+          target = target.cpu().detach().numpy()
+          mask = mask.cpu().detach().numpy()
+          unc_img = None
+
         valid_iteration += 1
-        epoch_error += error2.item()
+
         print("===> Test({}/{}): Error: ({:.4f})".format(iteration,
               len(testing_data_loader), error2.item()))
 
     if SAVE_PREDICTION_IMAGES:
       save_prediction_images(
-          disp2, target, input1, mask, batch['data_path'], batch['file_name'], opt.save_path, batch['image_size'])
+          prediction, target, input1, mask, batch['data_path'], batch['file_name'], opt.save_path, batch['image_size'], unc_img)
 
   print("===> Test: Avg. Error: ({:.4f})".format(
       epoch_error / valid_iteration))
