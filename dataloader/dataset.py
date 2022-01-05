@@ -397,7 +397,7 @@ class DatasetFromSessionList(data.Dataset):
       # Get the list of all files in the session directory
       left_img_dir_path = os.path.join(session, self.left_img_folder_name)
       files = [f for f in os.listdir(
-          left_img_dir_path) if os.path.isfile(os.path.join(left_img_dir_path, f))]
+          left_img_dir_path) if os.path.isfile(os.path.join(left_img_dir_path, f)) and f.endswith('.png')]
 
       # Subsample files
       if subsample_factor < 1.0:
