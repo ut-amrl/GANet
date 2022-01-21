@@ -27,6 +27,7 @@ VIDEO_DIRS=(
 "err_vis"
 "uncertainty_vis"
 )
+VIDEO_SUFFIX=""
 
 # Number of cells in the grid
 GRID_X=2
@@ -98,12 +99,14 @@ for session in $SESSIONS_LIST; do
   # echo "filter_cmd: $filter_cmd"
   # echo "video_stream_cmd: $video_stream_cmd"
 
-  OUTPUT_VIDEO_PATH=${OUTPUT_DIR}/${SESSION_NUM_STR}/${SESSION_NUM_STR}"_joined_vid."${VIDEO_FMT}
+  OUTPUT_VIDEO_PATH=${OUTPUT_DIR}/${SESSION_NUM_STR}/${SESSION_NUM_STR}${VIDEO_SUFFIX}"_joined_vid."${VIDEO_FMT}
 
+  echo "Output video: $OUTPUT_VIDEO_PATH"
 
   # Check desired video format
   if [ $VIDEO_FMT == "mp4" ]; then
     # -crf sets the video quality (15-25), the lower the better
+    echo "Generating MP4 video ..."
     ffmpeg \
       -y \
       $video_stream_cmd \
@@ -115,6 +118,7 @@ for session in $SESSIONS_LIST; do
       $OUTPUT_VIDEO_PATH
   elif [ $VIDEO_FMT == "avi" ]; then
     # -qscale:v sets the video quality (1-31), the lower the better
+    echo "Generating AVI video ..."
     ffmpeg \
       -y \
       $video_stream_cmd \
@@ -122,7 +126,7 @@ for session in $SESSIONS_LIST; do
       -map [vid] \
       -c:v mpeg4 \
       -qscale:v 3 \
-      -loglevel 4 \
+      -loglevel 0 \
       $OUTPUT_VIDEO_PATH
   else
     echo "Unknown video format: $VIDEO_FMT"

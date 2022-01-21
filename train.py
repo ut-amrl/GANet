@@ -200,7 +200,7 @@ def train(epoch):
       epoch_error0 += error0.item()
       epoch_error1 += error1.item()
       epoch_error2 += error2.item()
-      print("===> Epoch[{}]({}/{}): Loss: {:.4f}, Error: ({:.4f} {:.4f} {:.4f})".format(epoch,
+      print("===> Epoch[{}]({}/{}): Loss: {:.6f}, Error: ({:.6f} {:.6f} {:.6f})".format(epoch,
             iteration, len(training_data_loader), loss.item(), error0.item(), error1.item(), error2.item()))
       sys.stdout.flush()
 
@@ -208,7 +208,7 @@ def train(epoch):
       # TODO: remove this debugging
       print("No valid points")
 
-  print("===> Epoch {} Complete: Avg. Loss: {:.4f}, Avg. Error: ({:.4f} {:.4f} {:.4f})".format(epoch, epoch_loss /
+  print("===> Epoch {} Complete: Avg. Loss: {:.6f}, Avg. Error: ({:.6f} {:.6f} {:.6f})".format(epoch, epoch_loss /
         valid_iteration, epoch_error0 / valid_iteration, epoch_error1 / valid_iteration, epoch_error2 / valid_iteration))
 
 

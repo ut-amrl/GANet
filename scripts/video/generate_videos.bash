@@ -33,7 +33,8 @@ VIDEO_FMT="avi" # mp4, avi
 
 if [ $SESSIONS == "ALL" ]; then
   pushd $SOURCE_BASE_DIR
-  folders=$(ls -d *)
+  # Get the list of all folders in the current directory
+  folders=$(ls -d */ | sed 's/\///g')
   popd
   SESSIONS_LIST=$folders
 else

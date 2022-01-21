@@ -172,9 +172,10 @@ def save_prediction_images(prediction, target, input, mask, data_path, file_name
 
     # -------
     # Overlay the error image on the input RGB image
+    MAX_ERR_THRESH_VISUALIZATION = 0.1  # def: 0.1
     err_img = np.abs(gt_disp - pred_disp)
     err_img = colorize(
-        err_img, plt.get_cmap('viridis'), 0, 0.1)
+        err_img, plt.get_cmap('viridis'), 0, MAX_ERR_THRESH_VISUALIZATION)
     err_img = np.uint8(err_img * 255)
     input_img_gray = cv2.cvtColor(rgb_img, cv2.COLOR_RGB2GRAY)
     input_img_err_overlaid = cv2.cvtColor(input_img_gray, cv2.COLOR_GRAY2RGBA)
@@ -189,9 +190,10 @@ def save_prediction_images(prediction, target, input, mask, data_path, file_name
 
     # -------
     # Overlay the uncertainty image on the input RGB image
+    MAX_UNC_THRESH_VISUALIZATION = 0.1  # def: 0.1
     if uncertainty_img is not None:
       unc_img = colorize(
-          unc_img, plt.get_cmap('viridis'), 0, 1e-1)
+          unc_img, plt.get_cmap('viridis'), 0, MAX_UNC_THRESH_VISUALIZATION)
       unc_img = np.uint8(unc_img * 255)
       input_img_uncertainty_overlaid = cv2.cvtColor(
           input_img_gray, cv2.COLOR_GRAY2RGBA)
@@ -238,6 +240,7 @@ def save_prediction_images(prediction, target, input, mask, data_path, file_name
 if __name__ == "__main__":
   SAVE_PREDICTION_IMAGES = True
 
+  is_ensemble = False
   if len(models) > 1:
     is_ensemble = True
     print("Running ensemble model")
