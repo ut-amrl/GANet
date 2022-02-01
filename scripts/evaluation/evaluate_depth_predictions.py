@@ -25,7 +25,6 @@ Given a folder of predicted depth images, a folder of ground truth depth images,
 """
 
 __author__ = "Sadegh Rabiee"
-__license__ = "MIT"
 __version__ = "1.0.0"
 
 
@@ -52,9 +51,9 @@ parser.add_argument('--max_range', type=float,
 parser.add_argument('--min_range', type=float,
                     help='Minimum depth range to be considered for evaluation.', required=True, default=1.0)
 parser.add_argument('--depth_err_thresh_abs', type=float,
-                    help='Minimum depth range to be considered for evaluation.', default=1.5, required=True)
+                    help='Absolute depth error threshold.', default=1.5, required=True)
 parser.add_argument('--depth_err_thresh_relative', type=float,
-                    help='Minimum depth range to be considered for evaluation.',
+                    help='Relative depth error threshold.',
                     default=0.3, required=True)
 parser.add_argument('--image_height', type=int, required=True)
 parser.add_argument('--image_width', type=int, required=True)

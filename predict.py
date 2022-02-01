@@ -22,11 +22,16 @@ from dataloader.data import get_test_set
 import numpy as np
 import cv2
 from depth_utilities import colorize
+from depth_utilities import convert_disparity_unc_to_depth_unc
+from depth_utilities import write_pfm
 import matplotlib.pyplot as plt
 
 
 def find_least_multiple_larger_than(thresh, divisor):
   return int(math.ceil(thresh / divisor) * divisor)
+
+# TODO: generate depth uncertainty from disparity uncertainty (if ensemble)
+# TODO: write depth uncertainty to file
 
 
 # Training settings
@@ -35,6 +40,11 @@ parser.add_argument('--crop_height', type=int,
                     required=True, help="crop height")
 parser.add_argument('--crop_width', type=int, required=True, help="crop width")
 parser.add_argument('--max_disp', type=int, default=192, help="max disp")
+parser.add_argument('--baseline', type=float,
+                    help='Baseline of the stereo camera in meters. Only used for computing depth uncertainty given disparity uncertainty in the ensemble mode.', required=True)
+parser.add_argument('--fx', type=float,
+                    help='Focal length of the stereo camera. Only used for computing depth uncertainty given disparity uncertainty in the ensemble mode.', required=True)
+
 # parser.add_argument('--model_paths', type=str, default='',
 # help="model_paths from saved model")
 parser.add_argument(
@@ -87,6 +97,10 @@ opt.crop_width = adjusted_crop_width
 print("Adjusted crop height: ", opt.crop_height)
 print("Adjusted crop width: ", opt.crop_width)
 
+# Adjust based on scaling factor
+opt.fx = opt.fx * opt.scale_factor
+print("Adjusted fx: ", opt.fx)
+
 print(opt)
 if opt.model == 'GANet11':
   from models.GANet11 import GANet
@@ -132,6 +146,47 @@ def load_and_scale_img(img_path, scale_factor):
         (int(rgb_img.size[0] * scale_factor), int(rgb_img.size[1] * scale_factor)), Image.ANTIALIAS)
   rgb_img = np.asarray(rgb_img)
   return rgb_img
+
+
+def save_predicted_depth_uncertainty(predicted_disp_img, predicted_disp_unc_img, data_path, file_names, output_path, original_image_size):
+  """
+  Converts the predicted disparity uncertainty to depth uncertainty and saves it to a file.
+  :param predicted_disp_img: The predicted disparity image (normalized between 0 and 1)
+  :param predicted_disp_unc_img: The predicted disparity uncertainty image. (standard deviation of disparity divided by max_disp)
+  :param data_path: The list of paths to each input image. This will be used to infer the session ID (output folder name)
+  :param file_names: The list of file names for each input image.
+  :param output_path: The path to save the depth uncertainty image to.
+  :param original_image_size: The list of original image sizes. It is used to crop the padded predicted disparity image.
+  """
+
+  # Loop through images in the batch and save them to file
+  for i in range(prediction.shape[0]):
+    width = original_image_size[1][i]
+    height = original_image_size[0][i]
+
+    # Crop the disparity image to the original input image size
+    pred_disp = predicted_disp_img[i, :, :]
+    unc_img = predicted_disp_unc_img[i, :, :]
+    if height <= opt.crop_height and width <= opt.crop_width:
+      pred_disp = pred_disp[opt.crop_height - height: opt.crop_height,
+                            opt.crop_width - width: opt.crop_width]
+      unc_img = unc_img[
+          opt.crop_height - height: opt.crop_height,
+          opt.crop_width - width: opt.crop_width]
+
+    depth_unc = convert_disparity_unc_to_depth_unc(
+        disp_img=256.0 * pred_disp, disp_unc_img=unc_img, baseline=opt.baseline, fx=opt.fx, max_disp=opt.max_disp)
+
+    # Save images to file
+    folder_name = os.path.basename(data_path[i])
+    output_dir = os.path.join(
+        output_path, folder_name, 'depth_uncertainty_pred')
+    if not os.path.exists(output_dir):
+      os.makedirs(output_dir)
+
+    output_depth_unc_file_name = os.path.join(
+        output_dir, file_names[i].rstrip('.png') + ".pfm")
+    write_pfm(output_depth_unc_file_name, depth_unc)
 
 
 def save_prediction_images(prediction, target, input, mask, data_path, file_name, output_path, original_image_size, uncertainty_img=None):
@@ -298,6 +353,9 @@ if __name__ == "__main__":
     if SAVE_PREDICTION_IMAGES:
       save_prediction_images(
           prediction, target, input1, mask, batch['data_path'], batch['file_name'], opt.save_path, batch['image_size'], unc_img)
+      if is_ensemble:
+        save_predicted_depth_uncertainty(
+            prediction, unc_img, batch['data_path'], batch['file_name'], opt.save_path, batch['image_size'])
 
   print("===> Test: Avg. Error: ({:.4f})".format(
       epoch_error / valid_iteration))

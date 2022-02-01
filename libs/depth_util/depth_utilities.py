@@ -72,6 +72,27 @@ def convert_disparity_to_depth(disp_img, baseline, fx, max_disp):
   return depth_img
 
 
+def convert_disparity_unc_to_depth_unc(disp_img, disp_unc_img, baseline, fx, max_disp):
+  """
+  Convert disparity uncertainty to depth uncertainty
+  :param disp_img: disparity image (normalized between 0 and 256)
+  :param disp_unc_img: disparity uncertainty image (standard deviation of disparity divided by max_disp)
+  :param baseline: baseline of the stereo camera
+  :param fx: focal length of the stereo camera
+  :param max_disp: maximum disparity
+  :return: depth uncertainty image
+  """
+  depth_unc_img = np.zeros(disp_img.shape, dtype=np.float32)
+  idx = np.where(disp_img != 0)
+
+  disp2 = (max_disp * disp_img[idx] / 256.0) * \
+      (max_disp * disp_img[idx] / 256.0)
+
+  # Converting small changes in disparity to small changes in depth (up to the first order)
+  depth_unc_img[idx] = (disp_unc_img[idx] * max_disp) * baseline * fx / disp2
+  return depth_unc_img
+
+
 def read_pfm(file):
   """ Read a pfm file """
   file = open(file, 'rb')
