@@ -8,13 +8,15 @@
 # --------------
 
 # SESSIONS="ALL"
-SESSIONS="01007"
+# SESSIONS="01007"
+SESSIONS=" 01005 01010 01015 01020 02005 02010 02015 02020 "
 
 BASELINE="0.6"
 FX="480.0" # 
 MAX_DISPARITY="192"
 
-SOURCE_DATASET_BASE_PATH="/robodata/user_data/srabiee/results/ipr/depth_prediction/ganet_deep_airsim_sample4_00/model_ensemble_epoch_32_e034/cityenv_wb/"
+# SOURCE_DATASET_BASE_PATH="/robodata/user_data/srabiee/results/ipr/depth_prediction/ganet_deep_airsim_sample4_00/model_ensemble_epoch_32_e034/cityenv_wb_test_unc/"
+SOURCE_DATASET_BASE_PATH="/robodata/user_data/srabiee/results/ipr/depth_prediction/ganet_deep_airsim_01/model_ensemble_epoch_50_e012/cityenv_wb/"
 TARGET_DEPTH_FOLDER_NAME="img_depth_pred"
 SOURCE_DISPARITY_FOLDER_NAME="disp_pred"
 # -----------------

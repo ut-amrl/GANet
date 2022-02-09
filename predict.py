@@ -294,6 +294,11 @@ def save_prediction_images(prediction, target, input, mask, data_path, file_name
 
 if __name__ == "__main__":
   SAVE_PREDICTION_IMAGES = True
+  MEASURE_INFERENCE_TIME = False
+
+  if MEASURE_INFERENCE_TIME:
+    starter, ender = torch.cuda.Event(
+        enable_timing=True), torch.cuda.Event(enable_timing=True)
 
   is_ensemble = False
   if len(models) > 1:
@@ -305,7 +310,18 @@ if __name__ == "__main__":
 
   epoch_error = 0
   valid_iteration = 0
+
+  # Samples of inference time of a single model in the ensemble on batch_size number of datapoints
+  timings_individual_all = []
+  # Inference time of each of the models in the ensemble on the latest data batch
+  timings_individual_per_batch = []
+  # Samples of the total inference time of all models in the ensemble on batch_size number of datapoints
+  timings_ensemble_all = []
+  # Iterations to run before starting timing
+  warm_up_iterations = 20
+
   for iteration, batch in enumerate(testing_data_loader):
+    timings_individual_per_batch = []
     input1, input2, target = Variable(batch['input1'], requires_grad=False), Variable(
         batch['input2'], requires_grad=False), Variable(batch['target'], requires_grad=False)
     if cuda:
@@ -327,8 +343,15 @@ if __name__ == "__main__":
           mask = mask.cpu().detach().numpy()
           i = 0
           for model in models:
-
+            if MEASURE_INFERENCE_TIME and iteration > warm_up_iterations:
+              starter.record()
             disp2 = model(input1, input2)
+            if MEASURE_INFERENCE_TIME and iteration > warm_up_iterations:
+              ender.record()
+              torch.cuda.synchronize()
+              timings_individual_per_batch += [starter.elapsed_time(ender)]
+              timings_individual_all += [starter.elapsed_time(ender)]
+
             disp2 = disp2.cpu().detach().numpy()
             ensemble_prediction[i, :, :, :] = disp2
             i += 1
@@ -350,12 +373,30 @@ if __name__ == "__main__":
         print("===> Test({}/{}): Error: ({:.4f})".format(iteration,
               len(testing_data_loader), error2.item()))
 
+    if MEASURE_INFERENCE_TIME and iteration > warm_up_iterations:
+      timings_ensemble_all += [sum(timings_individual_per_batch)]
+      mean_inf_time = np.mean(np.array(timings_individual_per_batch))
+      std_inf_time = np.std(np.array(timings_individual_per_batch))
+      print("Mean inference time across the ensemble models on current batch: {:.4f} ms, Std: {:.4f} ms".format(
+          mean_inf_time, std_inf_time))
+
     if SAVE_PREDICTION_IMAGES:
       save_prediction_images(
           prediction, target, input1, mask, batch['data_path'], batch['file_name'], opt.save_path, batch['image_size'], unc_img)
       if is_ensemble:
         save_predicted_depth_uncertainty(
             prediction, unc_img, batch['data_path'], batch['file_name'], opt.save_path, batch['image_size'])
+
+  if MEASURE_INFERENCE_TIME:
+    mean_inf_time = np.mean(np.array(timings_individual_all))
+    std_inf_time = np.std(np.array(timings_individual_all))
+    print("Mean inference time for individual models: {:.4f} ms, Std: {:.4f} ms".format(
+        mean_inf_time, std_inf_time))
+
+    mean_inf_time = np.mean(np.array(timings_ensemble_all))
+    std_inf_time = np.std(np.array(timings_ensemble_all))
+    print("Mean inference time for the ensemble: {:.4f} ms, Std: {:.4f} ms".format(
+        mean_inf_time, std_inf_time))
 
   print("===> Test: Avg. Error: ({:.4f})".format(
       epoch_error / valid_iteration))

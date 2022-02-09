@@ -35,6 +35,7 @@ import argparse
 import cv2
 from depth_utilities import *
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 # Check command line arguments
 parser = argparse.ArgumentParser(
@@ -46,6 +47,7 @@ parser.add_argument('--pred_depth_folder', type=str,
 parser.add_argument('--gt_depth_folder', type=str,
                     help='Folder containing ground truth depth images', required=True)
 parser.add_argument('--output_err_vis_folder', type=str, required=True)
+parser.add_argument('--output_binary_err_vis_folder', type=str, required=True)
 parser.add_argument('--max_range', type=float,
                     help='Max depth range to be considered for evaluation.', required=True, default=35.0)
 parser.add_argument('--min_range', type=float,
@@ -153,6 +155,64 @@ def visualize_depth_prediction_errors(rgb_img, evaluation_results, output_path):
   cv2.imwrite(output_path, gray_img_overlaid)
 
 
+def visualize_depth_prediction_errors_binary(rgb_img, evaluation_results, output_path):
+  """
+  Visualize the depth prediction errors on the RGB image. This function converts the prediction results into binary values: 0 for no error, 1 for either false positive or false negative.
+  """
+  alpha = 0.65
+  no_failure_color = (0, 255, 0, 255)  # BGRA green
+  failure_color = (0, 0, 255, 255)  # BGRA red
+  invalid_color = (255, 0, 0, 255)  # BGRA blue
+
+  fp_mask = evaluation_results['false_positives']
+  fn_mask = evaluation_results['false_negatives']
+  tp_mask = evaluation_results['true_positives']
+  valid_pixel_mask = evaluation_results['valid_pixel_mask']
+  failure_mask = np.logical_or(fp_mask, fn_mask)
+
+  rgb_img = cv2.cvtColor(rgb_img, cv2.COLOR_BGR2BGRA)
+
+  # Assert that the input RGB image has an alpha channel
+  assert rgb_img.shape[2] == 4, "Error: RGB image does not have an alpha channel. RGB image size: {}".format(
+      rgb_img.shape)
+
+  # Create a partially transparent flat colored image for failures
+  failure_img = np.zeros(rgb_img.shape, dtype=np.uint8)
+  failure_img[:, :, 0] = failure_color[0] * failure_mask
+  failure_img[:, :, 1] = failure_color[1] * failure_mask
+  failure_img[:, :, 2] = failure_color[2] * failure_mask
+  failure_img[:, :, 3] = 255 * failure_mask * 1.0
+
+  # Create a partially transparent flat colored image for true positives
+  tp_img = np.zeros(rgb_img.shape, dtype=np.uint8)
+  tp_img[:, :, 0] = no_failure_color[0] * tp_mask
+  tp_img[:, :, 1] = no_failure_color[1] * tp_mask
+  tp_img[:, :, 2] = no_failure_color[2] * tp_mask
+  tp_img[:, :, 3] = 255 * tp_mask * 1.0
+
+  invalid_pixel_mask = np.logical_not(valid_pixel_mask)
+
+  # label images overlaid
+  label_img = np.zeros(rgb_img.shape, dtype=np.uint8)
+  # label_img
+  label_img = tp_img + failure_img
+
+  # label_img[invalid_pixel_mask_4d] = invalid_color
+  label_img[:, :, 0][invalid_pixel_mask] = invalid_color[0]
+  label_img[:, :, 1][invalid_pixel_mask] = invalid_color[1]
+  label_img[:, :, 2][invalid_pixel_mask] = invalid_color[2]
+  label_img[:, :, 3][invalid_pixel_mask] = 255
+
+  # Overlay the false positives, false negatives, and true positives on a grayscale version of the RGB image
+  gray_img = cv2.cvtColor(rgb_img, cv2.COLOR_BGR2GRAY)
+  gray_img_overlaid = cv2.cvtColor(gray_img, cv2.COLOR_GRAY2RGBA)
+
+  cv2.addWeighted(label_img, alpha, gray_img_overlaid, 1 - alpha,
+                  0, gray_img_overlaid)
+
+  cv2.imwrite(output_path, gray_img_overlaid)
+
+
 def main():
   args = parser.parse_args()
   depth_folder_gt = args.gt_depth_folder
@@ -160,7 +220,7 @@ def main():
 
   if not os.path.exists(args.output_err_vis_folder):
     os.makedirs(args.output_err_vis_folder)
-  for filename in os.listdir(depth_folder_pred):
+  for filename in tqdm(os.listdir(depth_folder_pred)):
     if filename.endswith(".pfm"):
 
       # Remove the .pfm extension
@@ -194,12 +254,17 @@ def main():
           depth_img_pred, depth_img_gt, args.max_range, args.min_range, args.depth_err_thresh_abs, args.depth_err_thresh_relative)
 
       # Remove the .pfm extension
-      output_file_path = os.path.join(
+      output_err_vis_file_path = os.path.join(
           args.output_err_vis_folder, base_filename + ".png")
+      output_binary_err_vis_file_path = os.path.join(
+          args.output_binary_err_vis_folder, base_filename + ".png")
 
       # Visualize the depth prediction errors
       visualize_depth_prediction_errors(
-          rgb_img, evaluation_results, output_file_path)
+          rgb_img, evaluation_results, output_err_vis_file_path)
+
+      visualize_depth_prediction_errors_binary(
+          rgb_img, evaluation_results, output_binary_err_vis_file_path)
 
 
 if __name__ == "__main__":

@@ -146,8 +146,8 @@ def visualize_patch_failure_predictions(patch_failure_pred_labels,
   failure_color = (0, 0, 255)  # red (BGR)
   non_failure_color = (0, 255, 0)  # green (BGR)
 
-  prediction_circle_radius = 5
-  gt_circle_radius = 10
+  prediction_circle_radius = 2  # 5, 2
+  gt_circle_radius = 5  # 10, 5
   thickness = -1
 
   gt_binary_labels = np.logical_or(
@@ -350,7 +350,8 @@ def main():
 
   # Retrieve the session number list give the dataset name.
   test_set_dict = {
-      "test_1_ganet_v0": [1007]
+      "test_1_ganet_v0": [1007],
+      "test_01_ganet_v0": [1007, 1012, 1017, 1022, 1027, 1032, 2007, 2012, 2017, 2022, 2027, 2032]
   }
   assert args.patch_dataset_name in test_set_dict, "Invalid patch dataset name."
   session_num_list = test_set_dict[args.patch_dataset_name]
@@ -432,10 +433,10 @@ def main():
   all_patch_target_binary_labels = np.logical_or(
       all_patch_multi_class_labels == 2, all_patch_multi_class_labels == 3)
 
-  print("after converting to binary labels")
-
   cnf_matrix = confusion_matrix(all_patch_target_binary_labels,
                                 all_patch_failure_predictions)
+
+  print("All data size:", all_patch_target_binary_labels.shape)
 
   print("Confusion matrix:")
   print(cnf_matrix)
