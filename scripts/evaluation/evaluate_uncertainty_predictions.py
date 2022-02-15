@@ -25,10 +25,12 @@ This script loads the ground truth depth images along with predicted depth image
 NOTE: For patch level evaluation, the script loads a pre-processed dataset including image patch coordinates and their corresponding labels.
 """
 
+import sys
+import os
+sys.path.insert(0, os.path.abspath(
+    os.path.join(os.path.dirname(__file__), '../..')))
 
 import numpy as np
-import os
-import sys
 import argparse
 from torchvision import transforms
 import torch
@@ -36,6 +38,7 @@ from scipy import special
 from sklearn.metrics import confusion_matrix
 import cv2
 from math import floor
+from collections import OrderedDict
 import tqdm
 import matplotlib.pyplot as plt
 import itertools
@@ -43,6 +46,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 
 from depth_utilities import read_pfm
 from failure_detection.data_loader.load_full_images import FailureDetectionDataset
+from models.GANet_unc_calib import GANet_unc_calib_linear
 
 
 # Helper function to draw the confusion matrix
@@ -326,6 +330,8 @@ def main():
                       help='Name of folder containing predicted depth images', required=True, default="img_depth_pred")
   parser.add_argument('--output_pred_failure_vis_folder', type=str,
                       help='Name of folder to save visualization of predicted failures in. The folder will be created under predictions_base_path. ', required=True, default="failure_pred_vis")
+  parser.add_argument('--output_pred_failure_patch_vis_folder', type=str,
+                      help='Name of folder to save visualization of predicted failures for image patches in. The folder will be created under predictions_base_path. ', required=False, default="failure_pred_patch_vis")
   parser.add_argument('--patch_dataset_name', type=str,
                       help='Name of the image patch dataset to evaluate the predictions on.', required=True)
   parser.add_argument('--patch_dataset_path', type=str,
@@ -342,6 +348,8 @@ def main():
                       type=lambda s: s.lower() in ['true', 't', 'yes', '1'],
                       help='Whether to save visualization images of predicted failures.',
                       required=True)
+  parser.add_argument('--unc_calibration_model', type=str,
+                      help='Path to the calibration model for the uncertainty.', required=False, default=None)
 
   parser.add_argument('--patch_size', type=int, required=True)
   parser.add_argument('--num_workers', type=int, default=4)
@@ -372,6 +380,31 @@ def main():
   data_loaders = torch.utils.data.DataLoader(test_dataset,
                                              batch_size=1, num_workers=args.num_workers)
 
+  unc_calib_model = None
+  if args.unc_calibration_model is not None:
+    unc_calib_model = GANet_unc_calib_linear()
+
+    # Map to CPU as you load the model
+    state_dict = torch.load(args.unc_calibration_model,
+                            map_location=lambda storage, loc: storage)
+    was_trained_with_multi_gpu = False
+    new_state_dict = OrderedDict()
+    for k, v in state_dict.items():
+      if k.startswith('module'):
+        was_trained_with_multi_gpu = True
+        name = k[7:]  # remove 'module.'
+        new_state_dict[name] = v
+        print(name)
+
+    if(was_trained_with_multi_gpu):
+      unc_calib_model.load_state_dict(new_state_dict)
+    else:
+      unc_calib_model.load_state_dict(state_dict)
+
+    print("State dict of loaded model: ")
+    print(unc_calib_model.state_dict())
+    # unc_calib_model = unc_calib_model.cuda()
+
   all_patch_failure_predictions = np.array([])
   all_patch_multi_class_labels = np.array([], dtype=int)
 
@@ -390,6 +423,12 @@ def main():
     # Load the predicted depth uncertainty
     unc_image, pred_depth_image = load_predicted_uncertainty(
         args.predictions_base_path, args.pred_depth_unc_folder, args.pred_depth_folder, img_idx, batch["bagfile_name"][0])
+
+    # Use the learned calibration model to calibrate the predicted depth uncertainty
+    if unc_calib_model is not None:
+      unc_image = torch.sqrt(unc_calib_model(
+          torch.pow(torch.tensor(unc_image), 2)))
+      unc_image = unc_image.detach().cpu().numpy()
 
     # Convert the predicted depth uncertainty to per pixel binary failure predictions
     failure_prediction = convert_unc_to_failure_prediction(
@@ -418,7 +457,7 @@ def main():
           patch_coords=batch["patch_coords_left"][0].numpy(),
           rgb_image=batch["full_img"][0].numpy(),
           output_folder_path=os.path.join(args.predictions_base_path,
-                                          session_name, 'failure_pred_patch_vis'),
+                                          session_name, args.output_pred_failure_patch_vis_folder),
           image_idx=img_idx)
 
     all_patch_failure_predictions = np.append(

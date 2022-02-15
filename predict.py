@@ -177,6 +177,11 @@ def save_predicted_depth_uncertainty(predicted_disp_img, predicted_disp_unc_img,
     depth_unc = convert_disparity_unc_to_depth_unc(
         disp_img=256.0 * pred_disp, disp_unc_img=unc_img, baseline=opt.baseline, fx=opt.fx, max_disp=opt.max_disp)
 
+    # Entries of depth_unc must be non-negative
+    if np.any(depth_unc < 0):
+      print(depth_unc)
+      raise ValueError("depth_unc has negative entry/entries")
+
     # Save images to file
     folder_name = os.path.basename(data_path[i])
     output_dir = os.path.join(
@@ -284,16 +289,17 @@ def save_prediction_images(prediction, target, input, mask, data_path, file_name
         output_dir_unc_overlaid, file_name[i])
 
     skimage.io.imsave(output_path_disp_pred,
-                      (pred_disp * 256).astype('uint16'))
+                      (pred_disp * 256).astype('uint16'), check_contrast=False)
     skimage.io.imsave(output_path_err_overlaid,
-                      input_img_err_overlaid)
+                      input_img_err_overlaid, check_contrast=False)
     if uncertainty_img is not None:
       skimage.io.imsave(output_path_unc_overlaid,
-                        input_img_uncertainty_overlaid)
+                        input_img_uncertainty_overlaid, check_contrast=False)
 
 
 if __name__ == "__main__":
   SAVE_PREDICTION_IMAGES = True
+  COMPUTE_AND_SAVE_DEPTH_UNCERTAINTY = True
   MEASURE_INFERENCE_TIME = False
 
   if MEASURE_INFERENCE_TIME:
@@ -383,9 +389,9 @@ if __name__ == "__main__":
     if SAVE_PREDICTION_IMAGES:
       save_prediction_images(
           prediction, target, input1, mask, batch['data_path'], batch['file_name'], opt.save_path, batch['image_size'], unc_img)
-      if is_ensemble:
-        save_predicted_depth_uncertainty(
-            prediction, unc_img, batch['data_path'], batch['file_name'], opt.save_path, batch['image_size'])
+    if COMPUTE_AND_SAVE_DEPTH_UNCERTAINTY and is_ensemble:
+      save_predicted_depth_uncertainty(
+          prediction, unc_img, batch['data_path'], batch['file_name'], opt.save_path, batch['image_size'])
 
   if MEASURE_INFERENCE_TIME:
     mean_inf_time = np.mean(np.array(timings_individual_all))
