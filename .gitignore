@@ -10,3 +10,4 @@ libs/depth_util/depth_util.egg-info
 *.pyc
 
 scripts/exec_scripts/runs
+runs/

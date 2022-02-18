@@ -17,6 +17,8 @@ from torch.utils.data import DataLoader
 # from models.GANet_deep import GANet
 import torch.nn.functional as F
 from dataloader.data import get_training_set, get_test_set
+from torch.utils.tensorboard import SummaryWriter
+writer = SummaryWriter()
 
 
 def find_least_multiple_larger_than(thresh, divisor):
@@ -73,6 +75,12 @@ parser.add_argument('--save_path', type=str,
                     default='./checkpoint/', help="location to save models")
 parser.add_argument('--model', type=str,
                     default='GANet_deep', help="model to train")
+parser.add_argument('--use_dropouts',
+                    type=lambda s: s.lower() in ['true', 't', 'yes', '1'],
+                    help='Whether to use dropouts in the GANet architecture', default=False,
+                    required=False)
+parser.add_argument('--dropout_rate', type=float, default=0.1,
+                    help='Dropout rate. Only used if use_dropouts is True.')
 
 opt = parser.parse_args()
 
@@ -96,8 +104,12 @@ print("Adjusted crop width: ", opt.crop_width)
 print(opt)
 if opt.model == 'GANet11':
   from models.GANet11 import GANet
+  if opt.use_dropouts:
+    print("ERROR: Dropouts are not currently supported in GANet11.")
+    exit()
 elif opt.model == 'GANet_deep':
   from models.GANet_deep import GANet
+  from models.GANet_deep import GANetDropOut
 else:
   raise Exception("No suitable model found ...")
 
@@ -105,7 +117,6 @@ cuda = opt.cuda
 if cuda and not torch.cuda.is_available():
   raise Exception("No GPU found, please run without --cuda")
 
-# TODO: remove debugging
 available_gpu_count = torch.cuda.device_count()
 print("GPU # available: ", available_gpu_count)
 
@@ -125,7 +136,10 @@ testing_data_loader = DataLoader(
     dataset=test_set, num_workers=opt.threads, batch_size=opt.testBatchSize, shuffle=False)
 
 print('===> Building model')
-model = GANet(opt.max_disp)
+if opt.use_dropouts:
+  model = GANetDropOut(opt.max_disp, dropout_rate=opt.dropout_rate)
+else:
+  model = GANet(opt.max_disp)
 
 criterion = MyLoss2(thresh=3, alpha=2)
 if cuda:
@@ -205,11 +219,12 @@ def train(epoch):
       sys.stdout.flush()
 
     else:
-      # TODO: remove this debugging
-      print("No valid points")
+      print("No valid points in current batch ...")
 
   print("===> Epoch {} Complete: Avg. Loss: {:.6f}, Avg. Error: ({:.6f} {:.6f} {:.6f})".format(epoch, epoch_loss /
         valid_iteration, epoch_error0 / valid_iteration, epoch_error1 / valid_iteration, epoch_error2 / valid_iteration))
+
+  writer.add_scalar('Loss/train', epoch_loss / valid_iteration, epoch)
 
 
 def val():
@@ -239,6 +254,8 @@ def val():
 
   print("===> Test: Avg. Error: ({:.6f})".format(
       epoch_error2 / valid_iteration))
+  writer.add_scalar('Loss/validation', epoch_error2 / valid_iteration, epoch)
+
   return epoch_error2 / valid_iteration
 
 
@@ -262,8 +279,8 @@ def adjust_learning_rate(optimizer, epoch):
 
 if __name__ == '__main__':
   error = 100
+
   for epoch in range(opt.startEpoch, opt.nEpochs + opt.startEpoch):
-    #        if opt.kitti or opt.kitti2015:
     adjust_learning_rate(optimizer, epoch)
     train(epoch)
     is_best = False

@@ -260,12 +260,19 @@ class DispAgg(nn.Module):
 
 
 class SGABlock(nn.Module):
-  def __init__(self, channels=32, refine=False):
+  def __init__(self, channels=32, refine=False, dropout=None):
     super(SGABlock, self).__init__()
     self.refine = refine
+    self.dropout_rate = dropout
     if self.refine:
-      self.bn_relu = nn.Sequential(BatchNorm3d(channels),
-                                   nn.ReLU(inplace=True))
+      if self.dropout_rate is not None:
+        self.dropout_unit = nn.Dropout(p=self.dropout_rate)
+        self.bn_relu = nn.Sequential(BatchNorm3d(channels),
+                                     nn.ReLU(inplace=True),
+                                     nn.Dropout(p=self.dropout_rate))
+      else:
+        self.bn_relu = nn.Sequential(BatchNorm3d(channels),
+                                     nn.ReLU(inplace=True))
       self.conv_refine = BasicConv(
           channels, channels, is_3d=True, kernel_size=3, padding=1, relu=False)
 #            self.conv_refine1 = BasicConv(8, 8, is_3d=True, kernel_size=1, padding=1)
@@ -294,12 +301,16 @@ class SGABlock(nn.Module):
       x = self.bn(x)
     assert(x.size() == rem.size())
     x += rem
+
+    if self.dropout_rate is not None:
+      x = self.dropout_unit(x)
+
     return self.relu(x)
 #        return self.bn_relu(x)
 
 
 class CostAggregation(nn.Module):
-  def __init__(self, maxdisp=192):
+  def __init__(self, maxdisp=192, dropout=None):
     super(CostAggregation, self).__init__()
     self.maxdisp = maxdisp
     self.conv_start = BasicConv(
@@ -324,14 +335,14 @@ class CostAggregation(nn.Module):
 #        self.deconv3b = Conv2x(96, 64, deconv=True, is_3d=True)
     self.deconv0b = Conv2x(8, 8, deconv=True, is_3d=True)
 
-    self.sga1 = SGABlock(refine=True)
-    self.sga2 = SGABlock(refine=True)
-    self.sga3 = SGABlock(refine=True)
+    self.sga1 = SGABlock(refine=True, dropout=dropout)
+    self.sga2 = SGABlock(refine=True, dropout=dropout)
+    self.sga3 = SGABlock(refine=True, dropout=dropout)
 
-    self.sga11 = SGABlock(channels=48, refine=True)
-    self.sga12 = SGABlock(channels=48, refine=True)
-    self.sga13 = SGABlock(channels=48, refine=True)
-    self.sga14 = SGABlock(channels=48, refine=True)
+    self.sga11 = SGABlock(channels=48, refine=True, dropout=dropout)
+    self.sga12 = SGABlock(channels=48, refine=True, dropout=dropout)
+    self.sga13 = SGABlock(channels=48, refine=True, dropout=dropout)
+    self.sga14 = SGABlock(channels=48, refine=True, dropout=dropout)
 
     self.disp0 = Disp(self.maxdisp)
     self.disp1 = Disp(self.maxdisp)
@@ -400,6 +411,61 @@ class GANet(nn.Module):
     self.feature = Feature()
     self.guidance = Guidance()
     self.cost_agg = CostAggregation(self.maxdisp)
+    self.cv = GetCostVolume(int(self.maxdisp / 3))
+
+    for m in self.modules():
+      if isinstance(m, (nn.Conv2d, nn.Conv3d)):
+        nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+      elif isinstance(m, (BatchNorm2d, BatchNorm3d)):
+        nn.init.constant_(m.weight, 1)
+        nn.init.constant_(m.bias, 0)
+
+  def forward(self, x, y):
+    # print("Entering GANet fwd")
+    g = self.conv_start(x)
+    x = self.feature(x)
+    rem = x
+    x = self.conv_x(x)
+
+    y = self.feature(y)
+    y = self.conv_y(y)
+
+    x = self.cv(x, y)
+    x1 = self.conv_refine(rem)
+    x1 = F.interpolate(x1, [x1.size()[2] * 3, x1.size()
+                       [3] * 3], mode='bilinear', align_corners=False)
+    x1 = self.bn_relu(x1)
+    g = torch.cat((g, x1), 1)
+    g = self.guidance(g)
+
+    if self.training:
+      disp0, disp1, disp2 = self.cost_agg(x, g)
+      return disp0, disp1, disp2
+    else:
+      return self.cost_agg(x, g)
+
+
+class GANetDropOut(nn.Module):
+  """
+  Has the same architecture as GANet but with dropout layers
+  """
+
+  def __init__(self, maxdisp=192, dropout_rate=0.1):
+    super(GANetDropOut, self).__init__()
+    self.maxdisp = maxdisp
+    self.dropout_rate = dropout_rate
+    self.conv_start = nn.Sequential(BasicConv(3, 16, kernel_size=3, padding=1),
+                                    BasicConv(16, 32, kernel_size=3, padding=1))
+
+    self.conv_x = BasicConv(32, 32, kernel_size=3, padding=1)
+    self.conv_y = BasicConv(32, 32, kernel_size=3, padding=1)
+    self.conv_refine = nn.Conv2d(32, 32, (3, 3), (1, 1), (1, 1), bias=False)
+    self.bn_relu = nn.Sequential(BatchNorm2d(32),
+                                 nn.ReLU(inplace=True),
+                                 nn.Dropout(p=self.dropout_rate))
+    self.feature = Feature()
+    self.guidance = Guidance()
+    self.cost_agg = CostAggregation(self.maxdisp, dropout=dropout_rate)
     self.cv = GetCostVolume(int(self.maxdisp / 3))
 
     for m in self.modules():

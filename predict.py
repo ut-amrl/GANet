@@ -27,11 +27,29 @@ from depth_utilities import write_pfm
 import matplotlib.pyplot as plt
 
 
+def has_dropout(model):
+  """
+  Helper function to check if the model has nay dropout layers.
+  NOTE: This is not a fool-proof way to check though, because if the initialized model architecture includes dropouts, but the trained
+  model whose parameters are loaded does not, then this check still passes.
+  """
+  for mod in model.modules():
+    if mod.__class__.__name__.startswith('Dropout'):
+      return True
+  return False
+
+
+def set_dropout_to_train(model):
+  """
+  Helper function to set all dropout layers to train mode
+  """
+  for mod in model.modules():
+    if mod.__class__.__name__.startswith('Dropout'):
+      mod.train()
+
+
 def find_least_multiple_larger_than(thresh, divisor):
   return int(math.ceil(thresh / divisor) * divisor)
-
-# TODO: generate depth uncertainty from disparity uncertainty (if ensemble)
-# TODO: write depth uncertainty to file
 
 
 # Training settings
@@ -77,6 +95,14 @@ parser.add_argument('--scale_factor', type=float, default=1.0,
                     help='scaling factor for the images')
 parser.add_argument('--subsample_factor', type=float, default=1.0,
                     help='Subsampling factor for the images. Note: It is only applied to the airsim formatted dataset.')
+parser.add_argument('--is_mc_dropout',
+                    type=lambda s: s.lower() in ['true', '1', 't', 'yes'], default=False,
+                    required=False, help='Whether to use Monte Carlo dropout (assuming the model is trained with MC dropout)')
+parser.add_argument('--num_mc_dropout_samples', type=int, default=1,
+                    required=False,
+                    help="number of Monte Carlo samples for dropout if the model is trained with dropout.")
+parser.add_argument('--dropout_rate', type=float, default=0.1,
+                    help='Dropout rate. Only used if is_mc_dropout is True.')
 
 opt = parser.parse_args()
 
@@ -106,6 +132,7 @@ if opt.model == 'GANet11':
   from models.GANet11 import GANet
 elif opt.model == 'GANet_deep':
   from models.GANet_deep import GANet
+  from models.GANet_deep import GANetDropOut
 else:
   raise Exception("No suitable model found ...")
 
@@ -124,7 +151,10 @@ models = []
 if len(opt.model_paths) >= 1:
   for model_path in opt.model_paths:
     print('===> Building model')
-    model = GANet(opt.max_disp)
+    if opt.is_mc_dropout:
+      model = GANetDropOut(opt.max_disp, dropout_rate=opt.dropout_rate)
+    else:
+      model = GANet(opt.max_disp)
 
     if cuda:
       model = torch.nn.DataParallel(model).cuda()
@@ -317,6 +347,14 @@ if __name__ == "__main__":
   epoch_error = 0
   valid_iteration = 0
 
+  assert not (
+      opt.is_mc_dropout and is_ensemble), "Cannot be both ensemble and mc-dropout"
+
+  assert has_dropout(
+      model) if opt.is_mc_dropout else True, "Model must have dropout units if is_mc_dropout is True"
+  if opt.is_mc_dropout:
+    print("Running in MC-dropout mode with {} samples".format(opt.num_mc_dropout_samples))
+
   # Samples of inference time of a single model in the ensemble on batch_size number of datapoints
   timings_individual_all = []
   # Inference time of each of the models in the ensemble on the latest data batch
@@ -339,6 +377,11 @@ if __name__ == "__main__":
     mask = target < opt.max_disp
     mask.detach_()
     valid = target[mask].size()[0]
+
+    if opt.is_mc_dropout:
+      mc_dropout_pred_size = tuple(
+          [opt.num_mc_dropout_samples] + list(target.size()))
+      mc_dropout_prediction = np.zeros(mc_dropout_pred_size, dtype=np.float32)
 
     ensemble_pred_size = tuple([len(models)] + list(target.size()))
     ensemble_prediction = np.zeros(ensemble_pred_size, dtype=np.float32)
@@ -364,6 +407,28 @@ if __name__ == "__main__":
           prediction = np.mean(ensemble_prediction, axis=0)
           error2 = np.mean(np.abs(prediction[mask] - target[mask]))
           unc_img = np.std(ensemble_prediction, axis=0)
+
+        elif opt.is_mc_dropout:
+          set_dropout_to_train(model)
+          target = target.cpu().detach().numpy()
+          mask = mask.cpu().detach().numpy()
+          i = 0
+          for i in range(opt.num_mc_dropout_samples):
+            if MEASURE_INFERENCE_TIME and iteration > warm_up_iterations:
+              starter.record()
+            disp2 = model(input1, input2)
+            if MEASURE_INFERENCE_TIME and iteration > warm_up_iterations:
+              ender.record()
+              torch.cuda.synchronize()
+              timings_individual_per_batch += [starter.elapsed_time(ender)]
+              timings_individual_all += [starter.elapsed_time(ender)]
+
+            disp2 = disp2.cpu().detach().numpy()
+            mc_dropout_prediction[i, :, :, :] = disp2
+            i += 1
+          prediction = np.mean(mc_dropout_prediction, axis=0)
+          error2 = np.mean(np.abs(prediction[mask] - target[mask]))
+          unc_img = np.std(mc_dropout_prediction, axis=0)
 
         else:
           prediction = model(input1, input2)
