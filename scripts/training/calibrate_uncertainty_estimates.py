@@ -36,12 +36,13 @@ sys.path.insert(0, os.path.abspath(
 import torch
 import numpy as np
 import argparse
+from collections import OrderedDict
 from depth_utilities import *
+from remote_monitor import send_notification_to_phone
 from dataloader.unc_calibration_dataset import UncCalibDataset
 from models.GANet_unc_calib import GANet_unc_calib_linear
 from models.GANet_unc_calib import MyGaussianNLLLoss
 from torch.utils.tensorboard import SummaryWriter
-writer = SummaryWriter()
 
 
 def train_model(
@@ -110,7 +111,14 @@ def train(model, training_data_loader, validation_data_loader, criterion, optimi
   """
   Trains the model for a given number of epochs
   """
+  global writer
+
   for epoch in range(epochs):
+    if epoch % 50 == 0:
+      msg = "Calibration of uncertainty estimates is at epoch {}".format(
+          epoch)
+      send_notification_to_phone(msg, 'Uncertainty calibration update')
+
     # Train the model
     train_loss = train_model(
         model, training_data_loader, criterion, optimizer, use_gpu, epoch)
@@ -124,6 +132,17 @@ def train(model, training_data_loader, validation_data_loader, criterion, optimi
 
     writer.add_scalar('Loss/train', train_loss, epoch)
     writer.add_scalar('Loss/validation', val_loss, epoch)
+
+    if 'module.weights' in model.state_dict():
+      writer.add_scalar('NetworkWeights/bias', model.state_dict()
+                        ['module.weights'][0], epoch)
+      writer.add_scalar('NetworkWeights/scalar',
+                        model.state_dict()['module.weights'][1], epoch)
+    elif 'weights' in model.state_dict():
+      writer.add_scalar('NetworkWeights/bias', model.state_dict()
+                        ['weights'][0], epoch)
+      writer.add_scalar('NetworkWeights/scalar',
+                        model.state_dict()['weights'][1], epoch)
 
     # Save the model
     torch.save(model.state_dict(), os.path.join(
@@ -156,12 +175,19 @@ def main():
   parser.add_argument('--subsample_factor', type=float, default=1.0)
   parser.add_argument(
       '--max_range', help='Only points with their depth smaller than this threshold will be used to learn the calibration parameters.', type=float, default=30.0)
+  parser.add_argument('--logs_comment', type=str,
+                      default='', help="Suffix for the logs folder")
+  parser.add_argument('--resume', type=str,
+                      help='Path to a pretrained calibration model for the uncertainty.', required=False, default=None)
 
   args = parser.parse_args()
   if not os.path.exists(args.save_path):
     os.makedirs(args.save_path)
 
   print(args)
+
+  global writer
+  writer = SummaryWriter(comment=args.logs_comment)
 
   # torch.set_num_threads(2)
   # print("number of threads: ", torch.get_num_threads())
@@ -187,6 +213,26 @@ def main():
       dataset=validation_data, num_workers=args.num_workers, batch_size=args.batch_size, shuffle=False)
 
   model = GANet_unc_calib_linear()
+  if args.resume is not None:
+    # Map to CPU as you load the model
+    state_dict = torch.load(args.resume,
+                            map_location=lambda storage, loc: storage)
+    was_trained_with_multi_gpu = False
+    new_state_dict = OrderedDict()
+    for k, v in state_dict.items():
+      if k.startswith('module'):
+        was_trained_with_multi_gpu = True
+        name = k[7:]  # remove 'module.'
+        new_state_dict[name] = v
+
+    if(was_trained_with_multi_gpu):
+      model.load_state_dict(new_state_dict)
+    else:
+      model.load_state_dict(state_dict)
+    print("Loaded model from {}".format(args.resume))
+    print("Model params: ")
+    print(model.state_dict())
+
   if args.use_gpu:
     model = torch.nn.DataParallel(model).cuda()
 
@@ -199,6 +245,10 @@ def main():
         criterion, optimizer, args.save_path, args.use_gpu, args.num_epochs)
   writer.flush()
   writer.close()
+
+  msg = "Calibration of uncertainty estimates finished after running for {} epochs. The resulting model snapshots are saved under {}".format(
+      args.num_epochs, args.save_path)
+  send_notification_to_phone(msg, 'Job Finished')
 
 
 if __name__ == "__main__":

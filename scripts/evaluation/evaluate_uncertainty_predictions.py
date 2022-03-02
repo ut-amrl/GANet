@@ -45,6 +45,7 @@ import itertools
 from matplotlib.backends.backend_pdf import PdfPages
 
 from depth_utilities import read_pfm
+from remote_monitor import send_notification_to_phone
 from failure_detection.data_loader.load_full_images import FailureDetectionDataset
 from models.GANet_unc_calib import GANet_unc_calib_linear
 
@@ -485,6 +486,10 @@ def main():
       ['NF', 'F'],
       "cnfMat_binary" + args.patch_dataset_name, args.predictions_base_path,
       normalize=True)
+
+  msg = "Running evaluate_uncertainty_predictions.py finished. Results saved to {}".format(
+      args.predictions_base_path)
+  send_notification_to_phone(msg, 'Unc. Eval. Job Finished')
 
 
 if __name__ == '__main__':

@@ -18,7 +18,7 @@ from torch.utils.data import DataLoader
 import torch.nn.functional as F
 from dataloader.data import get_training_set, get_test_set
 from torch.utils.tensorboard import SummaryWriter
-writer = SummaryWriter()
+from remote_monitor import send_notification_to_phone
 
 
 def find_least_multiple_larger_than(thresh, divisor):
@@ -81,8 +81,12 @@ parser.add_argument('--use_dropouts',
                     required=False)
 parser.add_argument('--dropout_rate', type=float, default=0.1,
                     help='Dropout rate. Only used if use_dropouts is True.')
+parser.add_argument('--logs_comment', type=str,
+                    default='', help="Suffix for the logs folder")
 
 opt = parser.parse_args()
+
+writer = SummaryWriter(comment=opt.logs_comment)
 
 # Adjust the max disparity value based on the scaling factor
 adjusted_max_disp = int(opt.scale_factor * opt.max_disp)
@@ -138,6 +142,7 @@ testing_data_loader = DataLoader(
 print('===> Building model')
 if opt.use_dropouts:
   model = GANetDropOut(opt.max_disp, dropout_rate=opt.dropout_rate)
+  print("Using dropout layers with dropout rate: ", opt.dropout_rate)
 else:
   model = GANet(opt.max_disp)
 
@@ -165,6 +170,11 @@ def train(epoch):
   epoch_error2 = 0
   valid_iteration = 0
   model.train()
+
+  if epoch % 10 == 0:
+    msg = "Training of GANet is at epoch {}. The model is saved to {}".format(
+        epoch, opt.save_path)
+    send_notification_to_phone(msg, 'GANet training update')
 
   for iteration, batch in enumerate(training_data_loader):
     input1, input2, target = Variable(batch[0], requires_grad=True), Variable(

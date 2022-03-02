@@ -24,6 +24,7 @@ import cv2
 from depth_utilities import colorize
 from depth_utilities import convert_disparity_unc_to_depth_unc
 from depth_utilities import write_pfm
+from remote_monitor import send_notification_to_phone
 import matplotlib.pyplot as plt
 
 
@@ -454,7 +455,7 @@ if __name__ == "__main__":
     if SAVE_PREDICTION_IMAGES:
       save_prediction_images(
           prediction, target, input1, mask, batch['data_path'], batch['file_name'], opt.save_path, batch['image_size'], unc_img)
-    if COMPUTE_AND_SAVE_DEPTH_UNCERTAINTY and is_ensemble:
+    if COMPUTE_AND_SAVE_DEPTH_UNCERTAINTY and (is_ensemble or opt.is_mc_dropout):
       save_predicted_depth_uncertainty(
           prediction, unc_img, batch['data_path'], batch['file_name'], opt.save_path, batch['image_size'])
 
@@ -471,3 +472,7 @@ if __name__ == "__main__":
 
   print("===> Test: Avg. Error: ({:.4f})".format(
       epoch_error / valid_iteration))
+
+  msg = "Running predict.py finished. Average error: {:.4f} \n Results are saved to {}".format(
+      epoch_error / valid_iteration, opt.save_path)
+  send_notification_to_phone(msg, 'Job Finished')
