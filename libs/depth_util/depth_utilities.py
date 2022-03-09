@@ -49,7 +49,7 @@ def convert_depth_to_disparity(depth_img, baseline, fx, max_disp):
 
   idx = np.where(depth_img != 0)
   depth_img[idx] = (baseline * fx / depth_img[idx]) / max_disp
-  disp_img[idx] = (np.minimum(depth_img[idx], 1) * 256.0).astype(int)
+  disp_img[idx] = (np.minimum(depth_img[idx] * 256.0, 255.0)).astype(int)
   return disp_img
 
 

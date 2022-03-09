@@ -45,9 +45,22 @@ import itertools
 from matplotlib.backends.backend_pdf import PdfPages
 
 from depth_utilities import read_pfm
+from depth_utilities import colorize
 from remote_monitor import send_notification_to_phone
 from failure_detection.data_loader.load_full_images import FailureDetectionDataset
 from models.GANet_unc_calib import GANet_unc_calib_linear
+from models.GANet_unc_calib import MyGaussianNLLLoss
+
+
+# Helper function to compute the NLL loss
+def compute_nll(depth_img_pred, depth_img_gt, unc_img_pred, mask, loss_func):
+
+  loss = loss_func(
+      torch.from_numpy(depth_img_pred[mask]), torch.from_numpy(depth_img_gt[mask]), torch.from_numpy(np.power(unc_img_pred[mask], 2)))
+  loss_vis = np.zeros(depth_img_pred.shape, dtype=float)
+  loss_vis[mask] = loss.detach().cpu().numpy()
+
+  return loss.mean(), loss_vis
 
 
 # Helper function to draw the confusion matrix
@@ -259,6 +272,47 @@ def visualize_failure_predictions(failure_prediction, rgb_image, output_folder_p
               gray_img_overlaid)
 
 
+def visualize_scalar_img_on_rgb(scalar_img, rgb_image, output_folder_path, image_idx, max_unc_threshold=10.0):
+  """
+  Visualizes the magnitude of the input scalar image for each pixel in the image.
+  :param scalar_img: An HXW image of scalar values.
+  :param rgb_image: the input rgb image
+  :return:
+  """
+  alpha = 0.5
+  MAX_UNC_THRESH_VISUALIZATION = max_unc_threshold
+
+  rgb_image = np.moveaxis(rgb_image, [0, 1, 2], [2, 0, 1])
+  rgb_image = (cv2.resize(
+      rgb_image,
+      (scalar_img.shape[1], scalar_img.shape[0]))
+      * 255).astype(np.uint8)
+
+  assert scalar_img.shape[0] == rgb_image.shape[0], "Scalar img and rgb image must have the same shape."
+  assert scalar_img.shape[1] == rgb_image.shape[1], "Scalar img and rgb image must have the same shape."
+
+  gray_img = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2GRAY)
+  gray_img_overlaid = cv2.cvtColor(gray_img, cv2.COLOR_GRAY2RGBA)
+
+  unc_img = colorize(
+      scalar_img, plt.get_cmap('viridis'), 0, MAX_UNC_THRESH_VISUALIZATION)
+  unc_img = np.uint8(unc_img * 255)
+  unc_img = cv2.cvtColor(unc_img, cv2.COLOR_RGBA2BGRA)
+
+  gray_img_overlaid = gray_img_overlaid.astype(
+      np.uint8)
+  cv2.addWeighted(unc_img,
+                  alpha, gray_img_overlaid, 1 - alpha,
+                  0, gray_img_overlaid)
+
+  # Create output folder if it does not exist
+  if not os.path.exists(output_folder_path):
+    os.makedirs(output_folder_path)
+  output_image_path = os.path.join(output_folder_path, image_idx + ".png")
+  cv2.imwrite(output_image_path,
+              gray_img_overlaid)
+
+
 def convert_unc_to_failure_prediction(unc_image, pred_depth_image, depth_err_thresh_abs, depth_err_thresh_relative):
   """
   Converts the predicted depth uncertainty for each pixel in the image
@@ -281,6 +335,21 @@ def convert_unc_to_failure_prediction(unc_image, pred_depth_image, depth_err_thr
 
   failure_prediction = failure_prob > 0.5
   return failure_prediction
+
+
+def load_and_scale_gt_depth(gt_base_path, gt_depth_folder, target_img_size, img_idx, session_name):
+  """
+  Loads the ground-truth depth image and resizes it.
+  """
+  depth_image_name = img_idx + ".pfm"
+  depth_path = os.path.join(
+      gt_base_path, session_name, gt_depth_folder, depth_image_name)
+
+  depth_image, scale = read_pfm(depth_path)
+  depth_image = cv2.resize(
+      depth_image, (target_img_size[1], target_img_size[0]))
+
+  return depth_image
 
 
 def load_predicted_uncertainty(pred_unc_path, pred_depth_unc_folder, pred_depth_folder, img_idx, session_name):
@@ -323,6 +392,10 @@ def convert_image_name_to_index(image_name, session_name):
 def main():
   parser = argparse.ArgumentParser(
       description='This script loads the ground truth depth images along with predicted depth images and predicted depth uncertainty that is output by a GANet model evaluates the performance of the model at both pixel level and patch level.')
+  parser.add_argument('--gt_data_path', type=str,
+                      help='Path to the base directory containing ground truth depth images', required=True)
+  parser.add_argument('--gt_depth_folder', type=str,
+                      help='Name of the folder containing ground-truth depth images', required=False, default="img_depth")
   parser.add_argument('--predictions_base_path', type=str,
                       help='Path to the base directory that includes the GANet predictions.', required=True)
   parser.add_argument('--pred_depth_unc_folder', type=str,
@@ -354,8 +427,17 @@ def main():
 
   parser.add_argument('--patch_size', type=int, required=True)
   parser.add_argument('--num_workers', type=int, default=4)
+  parser.add_argument('--max_range', type=float,
+                      help='Max depth range to be considered for evaluation.', required=False, default=30.0)
+  parser.add_argument('--min_range', type=float,
+                      help='Minimum depth range to be considered for evaluation.', required=False, default=1.0)
 
   args = parser.parse_args()
+
+  # Save visualization of depth uncertainty (as opposed to disparity on the original images)
+  VISUALIZE_DEPTH_UNCERTAINTY = True
+  VISUALIZE_NLL = True
+  loss_func = MyGaussianNLLLoss(eps=1e-06, reduction="none")
 
   # Retrieve the session number list give the dataset name.
   test_set_dict = {
@@ -425,11 +507,30 @@ def main():
     unc_image, pred_depth_image = load_predicted_uncertainty(
         args.predictions_base_path, args.pred_depth_unc_folder, args.pred_depth_folder, img_idx, batch["bagfile_name"][0])
 
+    if VISUALIZE_DEPTH_UNCERTAINTY:
+      visualize_scalar_img_on_rgb(
+          unc_image, batch["full_img"][0].numpy(), os.path.join(args.predictions_base_path, session_name, 'depth_uncertainty_vis'), img_idx)
+      visualize_scalar_img_on_rgb(
+          unc_image / pred_depth_image, batch["full_img"][0].numpy(), os.path.join(args.predictions_base_path, session_name, 'depth_uncertainty_rel_vis'), img_idx, max_unc_threshold=1.0)
+
     # Use the learned calibration model to calibrate the predicted depth uncertainty
     if unc_calib_model is not None:
       unc_image = torch.sqrt(unc_calib_model(
           torch.pow(torch.tensor(unc_image), 2)))
       unc_image = unc_image.detach().cpu().numpy()
+
+    # Compute NLL given the predicted depth and the associated uncertainty
+    if VISUALIZE_NLL and (unc_calib_model is not None):
+      gt_depth_img = load_and_scale_gt_depth(
+          args.gt_data_path, args.gt_depth_folder, pred_depth_image.shape, img_idx, session_name)
+
+      # Compute the valid pixel mask
+      valid_pixel_mask = np.logical_and(
+          gt_depth_img > args.min_range, gt_depth_img < args.max_range)
+      loss, loss_img = compute_nll(pred_depth_image, gt_depth_img,
+                                   unc_image, valid_pixel_mask, loss_func)
+      visualize_scalar_img_on_rgb(
+          loss_img, batch["full_img"][0].numpy(), os.path.join(args.predictions_base_path, session_name, 'loss_after_calib_vis'), img_idx, max_unc_threshold=500.0)
 
     # Convert the predicted depth uncertainty to per pixel binary failure predictions
     failure_prediction = convert_unc_to_failure_prediction(
@@ -437,6 +538,11 @@ def main():
     if args.save_failure_pred_vis_images:
       visualize_failure_predictions(
           failure_prediction, batch["full_img"][0].numpy(), os.path.join(args.predictions_base_path, session_name, args.output_pred_failure_vis_folder), img_idx)
+      if VISUALIZE_DEPTH_UNCERTAINTY and (unc_calib_model is not None):
+        visualize_scalar_img_on_rgb(
+            unc_image, batch["full_img"][0].numpy(), os.path.join(args.predictions_base_path, session_name, 'depth_uncertainty_calib_vis'), img_idx)
+        visualize_scalar_img_on_rgb(
+            unc_image / pred_depth_image, batch["full_img"][0].numpy(), os.path.join(args.predictions_base_path, session_name, 'depth_uncertainty_rel_calib_vis'), img_idx, max_unc_threshold=1.0)
 
     same_aspect_ratio, rgb_to_depth_scale_factor = compute_image_scale_factor(
         batch["full_img"][0].numpy(), unc_image)

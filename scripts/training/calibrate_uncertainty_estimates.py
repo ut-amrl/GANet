@@ -40,7 +40,7 @@ from collections import OrderedDict
 from depth_utilities import *
 from remote_monitor import send_notification_to_phone
 from dataloader.unc_calibration_dataset import UncCalibDataset
-from models.GANet_unc_calib import GANet_unc_calib_linear
+from models.GANet_unc_calib import GANet_unc_calib_linear, GANet_unc_calib_scalar
 from models.GANet_unc_calib import MyGaussianNLLLoss
 from torch.utils.tensorboard import SummaryWriter
 
@@ -134,11 +134,19 @@ def train(model, training_data_loader, validation_data_loader, criterion, optimi
     writer.add_scalar('Loss/validation', val_loss, epoch)
 
     if 'module.weights' in model.state_dict():
+      if model.state_dict()['module.weights'].size()[0] == 1:
+        writer.add_scalar('NetworkWeights/scalar',
+                          model.state_dict()['module.weights'][0], epoch)
+      else:
       writer.add_scalar('NetworkWeights/bias', model.state_dict()
                         ['module.weights'][0], epoch)
       writer.add_scalar('NetworkWeights/scalar',
                         model.state_dict()['module.weights'][1], epoch)
     elif 'weights' in model.state_dict():
+      if model.state_dict()['weights'].size()[0] == 1:
+        writer.add_scalar('NetworkWeights/scalar',
+                          model.state_dict()['weights'][0], epoch)
+      else:
       writer.add_scalar('NetworkWeights/bias', model.state_dict()
                         ['weights'][0], epoch)
       writer.add_scalar('NetworkWeights/scalar',

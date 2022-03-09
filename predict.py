@@ -320,7 +320,7 @@ def save_prediction_images(prediction, target, input, mask, data_path, file_name
         output_dir_unc_overlaid, file_name[i])
 
     skimage.io.imsave(output_path_disp_pred,
-                      (pred_disp * 256).astype('uint16'), check_contrast=False)
+                      (np.minimum(pred_disp * 256, 255)).astype('uint8'), check_contrast=False)
     skimage.io.imsave(output_path_err_overlaid,
                       input_img_err_overlaid, check_contrast=False)
     if uncertainty_img is not None:

@@ -171,3 +171,29 @@ class GANet_unc_calib_bias(nn.Module):
 
     return torch.nn.functional.relu(bias + sigma2)
     # return torch.nn.functional.relu(10.0 * torch.nn.functional.sigmoid(bias) + sigma2)
+
+
+class GANet_unc_calib_scalar(nn.Module):
+  """
+  This a simple linear model for scaling the predicted uncertainty of an ensemble of  GANet models. scaled_sigma2 = alpha * sigma2, where alpha is the parameter of the model. alpha is a positive constant that scales the empirically computer uncertainty of the ensemble.
+  """
+
+  def __init__(self):
+    """
+    Initialize the linear model.
+    """
+    super(GANet_unc_calib_scalar, self).__init__()
+    weights = torch.distributions.Uniform(0, 20.0).sample((1,))
+    self.weights = nn.Parameter(weights)
+
+  def forward(self, sigma2):
+    """
+    Forward pass of the linear model.
+    :param sigma2: the predicted and unscaled uncertainty of the GANet model.
+    :return: the scaled uncertainty of the GANet model.
+    """
+
+    alpha = self.weights
+
+    return torch.nn.functional.relu(alpha * sigma2)
+    # return torch.nn.functional.relu(10.0 * torch.nn.functional.sigmoid(bias) + sigma2)

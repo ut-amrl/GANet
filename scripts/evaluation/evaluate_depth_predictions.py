@@ -48,6 +48,10 @@ parser.add_argument('--gt_depth_folder', type=str,
                     help='Folder containing ground truth depth images', required=True)
 parser.add_argument('--output_err_vis_folder', type=str, required=True)
 parser.add_argument('--output_binary_err_vis_folder', type=str, required=True)
+parser.add_argument('--output_depth_err_labels_folder', type=str,
+                    required=True, default="depth_err_labels", help="Absolute path to the folder where the depth error labels will be saved")
+parser.add_argument('--output_valid_pixel_mask_folder', type=str,
+                    required=True, default="depth_eval_valid_pixel_mask", help="Absolute path to the folder where the valid pixel mask images will be saved")
 parser.add_argument('--max_range', type=float,
                     help='Max depth range to be considered for evaluation.', required=True, default=35.0)
 parser.add_argument('--min_range', type=float,
@@ -91,6 +95,28 @@ def evaluate_depth_prediction(depth_img_pred, depth_img_gt, max_range, min_range
       'valid_pixel_mask': valid_pixel_mask
   }
   return evaluation_results
+
+
+def save_depth_error_labels(
+        evaluation_results, depth_err_label_output_path, valid_pixel_output_path):
+  TP_LABEL = 0
+  FP_LABEL = 127
+  FN_LABEL = 255
+
+  fp_mask = evaluation_results['false_positives']
+  fn_mask = evaluation_results['false_negatives']
+  tp_mask = evaluation_results['true_positives']
+  valid_pixel_mask = evaluation_results['valid_pixel_mask']
+
+  label_img = np.zeros(fp_mask.shape, dtype=np.uint8)
+  valid_mask_img = np.zeros(fp_mask.shape, dtype=np.uint8)
+  label_img[fp_mask] = FP_LABEL
+  label_img[fn_mask] = FN_LABEL
+  label_img[tp_mask] = TP_LABEL
+  valid_mask_img[valid_pixel_mask] = 255
+
+  cv2.imwrite(depth_err_label_output_path, label_img)
+  cv2.imwrite(valid_pixel_output_path, valid_mask_img)
 
 
 def visualize_depth_prediction_errors(rgb_img, evaluation_results, output_path):
@@ -258,6 +284,10 @@ def main():
           args.output_err_vis_folder, base_filename + ".png")
       output_binary_err_vis_file_path = os.path.join(
           args.output_binary_err_vis_folder, base_filename + ".png")
+      output_depth_err_label_file_path = os.path.join(
+          args.output_depth_err_labels_folder, base_filename + ".png")
+      output_valid_pixel_mask_file_path = os.path.join(
+          args.output_valid_pixel_mask_folder, base_filename + ".png")
 
       # Visualize the depth prediction errors
       visualize_depth_prediction_errors(
@@ -265,6 +295,9 @@ def main():
 
       visualize_depth_prediction_errors_binary(
           rgb_img, evaluation_results, output_binary_err_vis_file_path)
+
+      save_depth_error_labels(
+          evaluation_results, output_depth_err_label_file_path, output_valid_pixel_mask_file_path)
 
 
 if __name__ == "__main__":
