@@ -43,6 +43,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 import itertools
 from matplotlib.backends.backend_pdf import PdfPages
+import csv
 
 from depth_utilities import read_pfm
 from depth_utilities import colorize
@@ -56,6 +57,59 @@ from models.GANet_unc_calib import MyGaussianNLLLoss
 # replace the name of the args.patch_dataset_path with args.pixelwise_dataset_path (path to the base directory with pixel-wise error images, e.g. mcdropout_off...)
 # Extend the cmd line arguments
 # Support batch_size of larger than 1
+
+def compute_classification_report_from_cnf(cnf_matrix):
+  """
+  Computes the classification report from the confusion matrix.
+  :param cnf_matrix: confusion matrix
+  :return: classification report
+  """
+  report = []
+  # Compute the classification report
+  sum_precision = 0.0
+  sum_recall = 0.0
+  sum_f1 = 0.0
+  sum_precision_weighted = 0.0
+  sum_recall_weighted = 0.0
+  sum_f1_weighted = 0.0
+  class_support = np.zeros((cnf_matrix.shape[0], 1))
+  for i in range(cnf_matrix.shape[0]):
+    tp = cnf_matrix[i, i]
+    fp = np.sum(cnf_matrix[:, i]) - tp
+    fn = np.sum(cnf_matrix[i, :]) - tp
+    tn = np.sum(cnf_matrix) - tp - fp - fn
+    class_support[i] = np.sum(cnf_matrix[i, :])
+
+    precision = tp / float(tp + fp)
+    recall = tp / float(tp + fn)
+    f1 = 2 * precision * recall / float(precision + recall)
+    label = "class_" + str(i)
+    class_report = {"label": label,
+                    "precision": precision, "recall": recall, "f1": f1}
+    sum_precision += precision
+    sum_recall += recall
+    sum_f1 += f1
+    sum_precision_weighted += precision * class_support[i]
+    sum_recall_weighted += recall * class_support[i]
+    sum_f1_weighted += f1 * class_support[i]
+    report += [class_report]
+
+  # Compute Macro average (averaging the unweighted mean per label)
+  class_num = float(cnf_matrix.shape[0])
+  macro_avg_report = {"label": "macro_avg", "precision": sum_precision /
+                      class_num, "recall": sum_recall / class_num, "f1": sum_f1 / class_num}
+  report += [macro_avg_report]
+
+  # Compute the weighted average (averaging the weighted mean per label)
+  sum_weights = float(np.sum(class_support))
+  weighted_avg_report = {"label": "weighted_avg",
+                         "precision": float(sum_precision_weighted / sum_weights),
+                         "recall": float(sum_recall_weighted / sum_weights),
+                         "f1": float(sum_f1_weighted / sum_weights)}
+  report += [weighted_avg_report]
+
+  return report
+
 
 # Helper function to compute the NLL loss
 def compute_nll(depth_img_pred, depth_img_gt, unc_img_pred, mask, loss_func):
@@ -470,8 +524,16 @@ def main():
   # Save visualization of depth uncertainty (as opposed to disparity on the original images)
   VISUALIZE_DEPTH_UNCERTAINTY = False
   VISUALIZE_NLL = False
+  # class_weights = torch.tensor([1.0, 1.0])
+  # # For test_01_ganet_v0
+  class_weights = torch.tensor(
+      [5834415.0 / 233773276.0, 227938861.0 / 233773276.0], dtype=float)  # NF, F
+  # For test_ood_N_01_ganet_v0
+  # class_weights = torch.tensor(
+  #     [8731419.0 / 184377799.0, 175646380.0 / 184377799.0], dtype=float)  # NF, F
+
   loss_func = MyGaussianNLLLoss(eps=1e-06, reduction="none")
-  loss_func_classification = nn.NLLLoss(ignore_index=-1)
+  loss_func_classification = nn.NLLLoss(weight=class_weights, ignore_index=-1)
 
   # TODO: Add these to cmd line args
   session_prefix_length = 5
@@ -484,7 +546,9 @@ def main():
   # Retrieve the session number list give the dataset name.
   test_set_dict = {
       "test_tmp": [1007],
-      "test_01_ganet_v0": [1007, 1012, 1017, 1022, 1027, 1032, 2007, 2012, 2017, 2022, 2027, 2032]
+      "test_01_ganet_v0": [1007, 1012, 1017, 1022, 1027, 1032, 2007, 2012, 2017, 2022, 2027, 2032],
+      "test_ood_01_ganet_v0": [3005, 3006, 3007, 3008, 3009, 3010, 3011, 3012, 3013, 3014, 3015, 3016, 3017, 3018, 3019, 3020, 3021, 3022, 3023, 3024, 3025, 3026, 3027, 3028, 3029, 3030, 3031, 3032, 3033, 3034, 3035, 3036],
+      "test_ood_N_01_ganet_v0": [1000, 1001, 1002, 1003]
   }
   assert args.patch_dataset_name in test_set_dict, "Invalid dataset name."
   session_num_list = test_set_dict[args.patch_dataset_name]
@@ -660,6 +724,31 @@ def main():
     cnf_matrix = cnf_matrix + confusion_matrix(all_binary_labels,
                                                all_failure_predictions)
     valid_data_points_count += all_binary_labels.size
+
+  report = compute_classification_report_from_cnf(cnf_matrix)
+
+  print("Classification Report: ")
+  print(report)
+  # Save classification report to file
+  report_file_path = os.path.join(args.predictions_base_path, 'classification_report_' + args.patch_dataset_name +
+                                  OUTPUT_CNF_NAME_SUFFIX + '.csv')
+  with open(report_file_path, 'w') as csvfile:
+    print("Writing classification report to file: " + report_file_path)
+    writer = csv.DictWriter(csvfile, fieldnames=report[0].keys())
+    writer.writeheader()
+    writer.writerows(report)
+
+  # Save confusion matrix to file
+  cnf_file_path = os.path.join(
+      args.predictions_base_path, 'confusion_mat_binary_' + args.patch_dataset_name + OUTPUT_CNF_NAME_SUFFIX + '.csv')
+  print("Writing confusion matrix to file: " + cnf_file_path)
+  np.savetxt(cnf_file_path, cnf_matrix, delimiter=",", fmt=['%d', '%d'])
+
+  # Save the total loss to file
+  loss_file_path = os.path.join(args.predictions_base_path, 'NLL_loss_' +
+                                args.patch_dataset_name + OUTPUT_CNF_NAME_SUFFIX + '.txt')
+  with open(loss_file_path, 'w') as f:
+    f.write('NLL loss: {}'.format(running_loss_classification / iteration))
 
   print('Total loss (classification): ',
         running_loss_classification / iteration)

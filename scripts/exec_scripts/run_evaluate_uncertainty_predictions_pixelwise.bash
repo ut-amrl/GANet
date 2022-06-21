@@ -88,20 +88,37 @@
 
 
 # # ----------
-# # Test MCDropout model trained on full training_01 (inference with sample size 3)
-# GT_BASE_PATH="/robodata/srabiee/AirSim_IVSLAM/cityenv_wb"
+# # Test MCDropout model trained on full training_01 (inference with sample size 3) ******** CITYENV
+GT_BASE_PATH="/robodata/srabiee/AirSim_IVSLAM/cityenv_wb"
 # PREDICTIONS_BASE_PATH="/robodata/user_data/srabiee/results/ipr/depth_prediction/ganet_deep_airsim_01_dropout/model0_r0.1_mcdropout3_epoch_14/cityenv_wb/"
-# # PREDICTIONS_BASE_PATH="/robodata/user_data/srabiee/results/ipr/depth_prediction/ganet_deep_airsim_01_dropout/model0_r0.1_mcdropout3_epoch_14/cityenv_wb_manual_calib/"
+PREDICTIONS_BASE_PATH="/robodata/user_data/srabiee/results/ipr/depth_prediction/ganet_deep_airsim_01_dropout/model0_r0.1_mcdropout3_epoch_14/cityenv_wb_manual_calib/"
+PREDICTED_DEPTH_UNC_FOLDER_NAME="depth_uncertainty_pred"
+PATCH_DATASET_NAME="test_01_ganet_v0"
+# PATCH_DATASET_NAME="test_ood_01_ganet_v0"
+# PATCH_DATASET_PATH="/robodata/user_data/srabiee/IVOA/GANET/ganet_deep_airsim_01_mcdropoutOff_r0.0_epoch_14_p36_rg30_errTh1.0_0.2_NoGP_ds/"
+PATCH_DATASET_PATH="/robodata/user_data/srabiee/results/ipr/depth_prediction/ganet_deep_airsim_01_dropout/model0_r0.0_mcdropoutOff_epoch_14/cityenv_wb/"
+DEPTH_ERR_THRESH_ABS="1.0" # 1.0 , 1.5
+DEPTH_ERR_THRESH_REL="0.2" # 0.1, 0.2 , 0.3
+UNC_CALIBRATION_MODEL="/robodata/user_data/srabiee/results/ipr/nn_models/ganet_deep_airsim_01/model0_r0.1_mcdropout3_epoch_14_calib_unc_50/calib_unc_epoch_100.pth"
+
+SAVE_FAILURE_PREDICTION_VIS_IMAGES="true"
+OUT_PRED_FAILURE_VIS_FOLDER_NAME="failure_pred_vis_calibrated"
+OUT_PRED_FAILURE_PATCH_VIS_FOLDER_NAME="failure_pred_patch_vis_calibrated"
+PRED_DEPTH_FOLDER_NAME="img_depth_pred"
+
+# # ----------
+# # Test MCDropout model trained on full training_01 (inference with sample size 3) ******** NEIGHBORHOOD ENV
+# GT_BASE_PATH="/robodata/user_data/srabiee/AirSim_BNN/neighborhood_wb/"
+# PREDICTIONS_BASE_PATH="/robodata/user_data/srabiee/results/ipr/depth_prediction/ganet_deep_airsim_01_dropout/model0_r0.1_mcdropout3_epoch_14/neighborhood_wb/"
+# # PREDICTIONS_BASE_PATH="/robodata/user_data/srabiee/results/ipr/depth_prediction/ganet_deep_airsim_01_dropout/model0_r0.1_mcdropout3_epoch_14/neighborhood_wb_manual_calib/"
 # PREDICTED_DEPTH_UNC_FOLDER_NAME="depth_uncertainty_pred"
-# PATCH_DATASET_NAME="test_01_ganet_v0"
-# # PATCH_DATASET_NAME="test_tmp"
-# # PATCH_DATASET_PATH="/robodata/user_data/srabiee/IVOA/GANET/ganet_deep_airsim_01_mcdropoutOff_r0.0_epoch_14_p36_rg30_errTh1.0_0.2_NoGP_ds/"
-# PATCH_DATASET_PATH="/robodata/user_data/srabiee/results/ipr/depth_prediction/ganet_deep_airsim_01_dropout/model0_r0.0_mcdropoutOff_epoch_14/cityenv_wb/"
+# PATCH_DATASET_NAME="test_ood_N_01_ganet_v0"
+# PATCH_DATASET_PATH="/robodata/user_data/srabiee/results/ipr/depth_prediction/ganet_deep_airsim_01_dropout/model0_r0.0_mcdropoutOff_epoch_14/neighborhood_wb/"
 # DEPTH_ERR_THRESH_ABS="1.0" # 1.0 , 1.5
 # DEPTH_ERR_THRESH_REL="0.2" # 0.1, 0.2 , 0.3
 # UNC_CALIBRATION_MODEL="/robodata/user_data/srabiee/results/ipr/nn_models/ganet_deep_airsim_01/model0_r0.1_mcdropout3_epoch_14_calib_unc_50/calib_unc_epoch_100.pth"
 
-# SAVE_FAILURE_PREDICTION_VIS_IMAGES="false"
+# SAVE_FAILURE_PREDICTION_VIS_IMAGES="true"
 # OUT_PRED_FAILURE_VIS_FOLDER_NAME="failure_pred_vis_calibrated"
 # OUT_PRED_FAILURE_PATCH_VIS_FOLDER_NAME="failure_pred_patch_vis_calibrated"
 # PRED_DEPTH_FOLDER_NAME="img_depth_pred"
@@ -124,23 +141,39 @@
 
 
 # # ----------
-# Test the ensemble model that was trained with MCDropout (GANetDropout) trained on full training_01
-GT_BASE_PATH="/robodata/srabiee/AirSim_IVSLAM/cityenv_wb"
-# PREDICTIONS_BASE_PATH="/robodata/user_data/srabiee/results/ipr/depth_prediction/ganet_deep_airsim_01_dropout/model_ensemble_epoch_14_e012/cityenv_wb/"
-PREDICTIONS_BASE_PATH="/robodata/user_data/srabiee/results/ipr/depth_prediction/ganet_deep_airsim_01_dropout/model_ensemble_epoch_14_e012/cityenv_wb_manual_calib/" 
-PREDICTED_DEPTH_UNC_FOLDER_NAME="depth_uncertainty_pred"
-PATCH_DATASET_NAME="test_01_ganet_v0"
-# PATCH_DATASET_NAME="test_tmp"
-PATCH_DATASET_PATH="/robodata/user_data/srabiee/results/ipr/depth_prediction/ganet_deep_airsim_01_dropout/model0_r0.0_mcdropoutOff_epoch_14/cityenv_wb/"
-DEPTH_ERR_THRESH_ABS="1.0" # 1.0 , 1.5
-DEPTH_ERR_THRESH_REL="0.2" # 0.1, 0.2 , 0.3
-UNC_CALIBRATION_MODEL="/robodata/user_data/srabiee/results/ipr/nn_models/ganet_deep_airsim_01_dropout/model_ensemble_epoch_14_e012_calib_unc_50/calib_unc_epoch_100.pth"
+# # # Test the ensemble model that was trained with MCDropout (GANetDropout) trained on full training_01 ******** CITYENV
+# GT_BASE_PATH="/robodata/srabiee/AirSim_IVSLAM/cityenv_wb"
+# # PREDICTIONS_BASE_PATH="/robodata/user_data/srabiee/results/ipr/depth_prediction/ganet_deep_airsim_01_dropout/model_ensemble_epoch_14_e012/cityenv_wb/"
+# PREDICTIONS_BASE_PATH="/robodata/user_data/srabiee/results/ipr/depth_prediction/ganet_deep_airsim_01_dropout/model_ensemble_epoch_14_e012/cityenv_wb_manual_calib/" 
+# PREDICTED_DEPTH_UNC_FOLDER_NAME="depth_uncertainty_pred"
+# PATCH_DATASET_NAME="test_01_ganet_v0"
+# # PATCH_DATASET_NAME="test_ood_01_ganet_v0"
+# PATCH_DATASET_PATH="/robodata/user_data/srabiee/results/ipr/depth_prediction/ganet_deep_airsim_01_dropout/model0_r0.0_mcdropoutOff_epoch_14/cityenv_wb/"
+# DEPTH_ERR_THRESH_ABS="1.0" # 1.0 , 1.5
+# DEPTH_ERR_THRESH_REL="0.2" # 0.1, 0.2 , 0.3
+# UNC_CALIBRATION_MODEL="/robodata/user_data/srabiee/results/ipr/nn_models/ganet_deep_airsim_01_dropout/model_ensemble_epoch_14_e012_calib_unc_50/calib_unc_epoch_100.pth"
 
-SAVE_FAILURE_PREDICTION_VIS_IMAGES="true"
-OUT_PRED_FAILURE_VIS_FOLDER_NAME="failure_pred_vis_calibrated"
-OUT_PRED_FAILURE_PATCH_VIS_FOLDER_NAME="failure_pred_patch_vis_calibrated"
-PRED_DEPTH_FOLDER_NAME="img_depth_pred"
+# SAVE_FAILURE_PREDICTION_VIS_IMAGES="true"
+# OUT_PRED_FAILURE_VIS_FOLDER_NAME="failure_pred_vis_calibrated"
+# OUT_PRED_FAILURE_PATCH_VIS_FOLDER_NAME="failure_pred_patch_vis_calibrated"
+# PRED_DEPTH_FOLDER_NAME="img_depth_pred"
 
+# # ----------
+# # Test the ensemble model that was trained with MCDropout (GANetDropout) trained on full training_01 ******** NEIGHBORHOOD ENV
+# GT_BASE_PATH="/robodata/user_data/srabiee/AirSim_BNN/neighborhood_wb/"
+# PREDICTIONS_BASE_PATH="/robodata/user_data/srabiee/results/ipr/depth_prediction/ganet_deep_airsim_01_dropout/model_ensemble_epoch_14_e012/neighborhood_wb/"
+# # PREDICTIONS_BASE_PATH="/robodata/user_data/srabiee/results/ipr/depth_prediction/ganet_deep_airsim_01_dropout/model_ensemble_epoch_14_e012/neighborhood_wb_manual_calib/" 
+# PREDICTED_DEPTH_UNC_FOLDER_NAME="depth_uncertainty_pred"
+# PATCH_DATASET_NAME="test_ood_N_01_ganet_v0"
+# PATCH_DATASET_PATH="/robodata/user_data/srabiee/results/ipr/depth_prediction/ganet_deep_airsim_01_dropout/model0_r0.0_mcdropoutOff_epoch_14/neighborhood_wb/"
+# DEPTH_ERR_THRESH_ABS="1.0" # 1.0 , 1.5
+# DEPTH_ERR_THRESH_REL="0.2" # 0.1, 0.2 , 0.3
+# UNC_CALIBRATION_MODEL="/robodata/user_data/srabiee/results/ipr/nn_models/ganet_deep_airsim_01_dropout/model_ensemble_epoch_14_e012_calib_unc_50/calib_unc_epoch_100.pth"
+
+# SAVE_FAILURE_PREDICTION_VIS_IMAGES="true"
+# OUT_PRED_FAILURE_VIS_FOLDER_NAME="failure_pred_vis_calibrated"
+# OUT_PRED_FAILURE_PATCH_VIS_FOLDER_NAME="failure_pred_patch_vis_calibrated"
+# PRED_DEPTH_FOLDER_NAME="img_depth_pred"
 
 
 
