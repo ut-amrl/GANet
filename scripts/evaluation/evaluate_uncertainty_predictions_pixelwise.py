@@ -520,17 +520,23 @@ def main():
   # TODO: Support batch-size of larger than 1.
   if args.batch_size > 1:
     print("ERROR - Batches of size > 1 are not supported.")
+    exit()
 
   # Save visualization of depth uncertainty (as opposed to disparity on the original images)
   VISUALIZE_DEPTH_UNCERTAINTY = False
   VISUALIZE_NLL = False
-  # class_weights = torch.tensor([1.0, 1.0])
-  # # For test_01_ganet_v0
+  VISUALIZE_ENTROPY = True
+  # class_weights = torch.tensor([1.0, 1.0], dtype=float)
+  # TODO: Make this a cmd line parameter
+  # For test_01_ganet_v0
   class_weights = torch.tensor(
       [5834415.0 / 233773276.0, 227938861.0 / 233773276.0], dtype=float)  # NF, F
   # For test_ood_N_01_ganet_v0
   # class_weights = torch.tensor(
   #     [8731419.0 / 184377799.0, 175646380.0 / 184377799.0], dtype=float)  # NF, F
+  # For test_ood_africa_01_ganet_v0
+  # class_weights = torch.tensor(
+  #     [48456861.0 / 134077512.0, 85620651.0 / 134077512.0], dtype=float)  # NF, F
 
   loss_func = MyGaussianNLLLoss(eps=1e-06, reduction="none")
   loss_func_classification = nn.NLLLoss(weight=class_weights, ignore_index=-1)
@@ -548,7 +554,8 @@ def main():
       "test_tmp": [1007],
       "test_01_ganet_v0": [1007, 1012, 1017, 1022, 1027, 1032, 2007, 2012, 2017, 2022, 2027, 2032],
       "test_ood_01_ganet_v0": [3005, 3006, 3007, 3008, 3009, 3010, 3011, 3012, 3013, 3014, 3015, 3016, 3017, 3018, 3019, 3020, 3021, 3022, 3023, 3024, 3025, 3026, 3027, 3028, 3029, 3030, 3031, 3032, 3033, 3034, 3035, 3036],
-      "test_ood_N_01_ganet_v0": [1000, 1001, 1002, 1003]
+      "test_ood_N_01_ganet_v0": [1000, 1001, 1002, 1003],
+      "test_ood_africa_01_ganet_v0": [1000, 1001, 1002, 1003, 1004]
   }
   assert args.patch_dataset_name in test_set_dict, "Invalid dataset name."
   session_num_list = test_set_dict[args.patch_dataset_name]
@@ -620,6 +627,9 @@ def main():
   all_binary_labels = np.array([], dtype=np.int_)
   cnf_matrix = np.zeros((2, 2), dtype=np.int_)
   valid_data_points_count = 0
+
+  # Stores the entropy for all predictions that correspond to in-range depth values
+  all_masked_entropy = np.array([], dtype=np.float_)
 
   print("Dataset size: ", len(data_loaders))
   dataset_size = len(data_loaders)
@@ -697,15 +707,27 @@ def main():
     assert same_aspect_ratio, "The RGB image and the depth uncertainty image do not have the same aspect ratio."
 
     mask = torch.squeeze(batch['mask_img'], 1)
+    mask_np = mask[0].cpu().numpy()
     curr_valid_labels = batch["labels"][mask
                                         ].cpu().numpy().astype(np.int_)
-    curr_valid_predictions = failure_prediction[mask[
-        0].cpu().numpy()].astype(np.int_)
+    curr_valid_predictions = failure_prediction[mask_np].astype(np.int_)
 
     all_failure_predictions = np.concatenate(
         (all_failure_predictions, curr_valid_predictions), 0)
     all_binary_labels = np.concatenate(
         (all_binary_labels, curr_valid_labels), 0)
+
+    # Compute Entropy
+    # TODO: Handle batch_size > 1
+    entropy = np.sum(-failure_prediction_prob *
+                     np.log(failure_prediction_prob + 1e-15), axis=0)
+    masked_entropy = entropy[mask_np]
+    all_masked_entropy = np.concatenate(
+        (all_masked_entropy, masked_entropy))
+
+    if VISUALIZE_ENTROPY:
+      visualize_scalar_img_on_rgb(
+          entropy, batch["img"][0].numpy(), os.path.join(args.predictions_base_path, session_name, 'entropy'), img_idx, max_unc_threshold=0.05)
 
     if iteration % CONFUSION_MATRIX_COMPUTATION_BATCH_SIZE == 0 and iteration > 0:
       # Compute the confusion matrix for current batch and add it to the total confusion matrix
@@ -718,6 +740,19 @@ def main():
       valid_data_points_count += all_binary_labels.size
       all_failure_predictions = np.array([], dtype=np.int_)
       all_binary_labels = np.array([], dtype=np.int_)
+
+      # Save the entropy data to file
+      entropy_out_dir = os.path.join(args.predictions_base_path, 'entropy')
+      if not os.path.exists(entropy_out_dir):
+        os.makedirs(entropy_out_dir)
+      entropy_file_path = os.path.join(entropy_out_dir, str(
+          iteration / CONFUSION_MATRIX_COMPUTATION_BATCH_SIZE) + '.npy')
+      np.save(entropy_file_path, all_masked_entropy)
+
+      print("Saved entropy data to file: {}".format(entropy_file_path))
+
+      # Reset the entropy array
+      all_masked_entropy = np.array([], dtype=np.float_)
 
   # Evalute the failure predictions
   if all_binary_labels.size > 0:
@@ -765,6 +800,14 @@ def main():
       "cnfMat_binary" + args.patch_dataset_name +
       OUTPUT_CNF_NAME_SUFFIX, args.predictions_base_path,
       normalize=True)
+
+  # Save the entropy data to file
+  entropy_out_dir = os.path.join(args.predictions_base_path, 'entropy')
+  if not os.path.exists(entropy_out_dir):
+    os.makedirs(entropy_out_dir)
+  entropy_file_path = os.path.join(entropy_out_dir, '0.npy')
+  np.save(entropy_file_path, all_masked_entropy)
+  print("Saved entropy data to file: {}".format(entropy_file_path))
 
   msg = "Running evaluate_uncertainty_predictions.py finished. Results saved to {}".format(
       args.predictions_base_path)
