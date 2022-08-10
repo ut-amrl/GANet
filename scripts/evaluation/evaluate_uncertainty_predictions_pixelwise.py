@@ -526,20 +526,6 @@ def main():
   VISUALIZE_DEPTH_UNCERTAINTY = False
   VISUALIZE_NLL = False
   VISUALIZE_ENTROPY = True
-  # class_weights = torch.tensor([1.0, 1.0], dtype=float)
-  # TODO: Make this a cmd line parameter
-  # For test_01_ganet_v0
-  class_weights = torch.tensor(
-      [5834415.0 / 233773276.0, 227938861.0 / 233773276.0], dtype=float)  # NF, F
-  # For test_ood_N_01_ganet_v0
-  # class_weights = torch.tensor(
-  #     [8731419.0 / 184377799.0, 175646380.0 / 184377799.0], dtype=float)  # NF, F
-  # For test_ood_africa_01_ganet_v0
-  # class_weights = torch.tensor(
-  #     [48456861.0 / 134077512.0, 85620651.0 / 134077512.0], dtype=float)  # NF, F
-
-  loss_func = MyGaussianNLLLoss(eps=1e-06, reduction="none")
-  loss_func_classification = nn.NLLLoss(weight=class_weights, ignore_index=-1)
 
   # TODO: Add these to cmd line args
   session_prefix_length = 5
@@ -555,10 +541,30 @@ def main():
       "test_01_ganet_v0": [1007, 1012, 1017, 1022, 1027, 1032, 2007, 2012, 2017, 2022, 2027, 2032],
       "test_ood_01_ganet_v0": [3005, 3006, 3007, 3008, 3009, 3010, 3011, 3012, 3013, 3014, 3015, 3016, 3017, 3018, 3019, 3020, 3021, 3022, 3023, 3024, 3025, 3026, 3027, 3028, 3029, 3030, 3031, 3032, 3033, 3034, 3035, 3036],
       "test_ood_N_01_ganet_v0": [1000, 1001, 1002, 1003],
-      "test_ood_africa_01_ganet_v0": [1000, 1001, 1002, 1003, 1004]
+      "test_ood_africa_01_ganet_v0": [1000, 1001, 1002, 1003, 1004],
+      "test_ood_africa_02_ganet_v0": [1010, 1011, 1012, 1013]
   }
+
+  class_weights_dict = {
+      "test_01_ganet_v0": torch.tensor(
+          [5834415.0 / 233773276.0, 227938861.0 / 233773276.0], dtype=float),  # NF, F
+      "test_ood_N_01_ganet_v0": torch.tensor(
+          [8731419.0 / 184377799.0, 175646380.0 / 184377799.0], dtype=float),  # NF, F
+      "test_ood_africa_01_ganet_v0": torch.tensor(
+          [48456861.0 / 134077512.0, 85620651.0 / 134077512.0], dtype=float),  # NF, F
+      "test_ood_africa_02_ganet_v0": torch.tensor(
+          [7418926.0 / 115252778.0, 107833852.0 / 115252778.0], dtype=float),  # NF, F
+  }
+
   assert args.patch_dataset_name in test_set_dict, "Invalid dataset name."
   session_num_list = test_set_dict[args.patch_dataset_name]
+
+  assert args.patch_dataset_name in class_weights_dict, "Class weights not found for test set {}".format(
+      args.patch_dataset_name)
+
+  class_weights = class_weights_dict[args.patch_dataset_name]
+  loss_func = MyGaussianNLLLoss(eps=1e-06, reduction="none")
+  loss_func_classification = nn.NLLLoss(weight=class_weights, ignore_index=-1)
 
   data_transform_input = transforms.Compose([
       transforms.Resize((IMG_HEIGHT, IMG_WIDTH)),
@@ -727,7 +733,7 @@ def main():
 
     if VISUALIZE_ENTROPY:
       visualize_scalar_img_on_rgb(
-          entropy, batch["img"][0].numpy(), os.path.join(args.predictions_base_path, session_name, 'entropy'), img_idx, max_unc_threshold=0.05)
+          entropy, batch["img"][0].numpy(), os.path.join(args.predictions_base_path, session_name, 'entropy'), img_idx, max_unc_threshold=0.1)
 
     if iteration % CONFUSION_MATRIX_COMPUTATION_BATCH_SIZE == 0 and iteration > 0:
       # Compute the confusion matrix for current batch and add it to the total confusion matrix
