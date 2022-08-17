@@ -34,6 +34,7 @@ import os
 import sys
 import argparse
 import cv2
+from tqdm import tqdm
 from depth_utilities import *
 
 # Check command line arguments
@@ -61,7 +62,7 @@ def main():
 
   if not os.path.exists(depth_folder):
     os.makedirs(depth_folder)
-  for filename in os.listdir(disparity_folder):
+  for filename in tqdm(os.listdir(disparity_folder)):
     if filename.endswith(".png"):
 
       # Load the image

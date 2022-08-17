@@ -507,6 +507,13 @@ def main():
   parser.add_argument('--unc_calibration_model', type=str,
                       help='Path to the calibration model for the uncertainty.', required=False, default=None)
 
+  parser.add_argument('--evaluate_for_diff_uncertainty_types', default=False,
+                      type=lambda s: s.lower() in ['true', 't', 'yes', '1'],
+                      help='Whether to evaluate the error predictions separately for different uncertainty types. If True, you should also provide the path to the depth evaluation results of a fine-tuned model (refined_model_dataset_path).',
+                      required=False)
+  parser.add_argument('--refined_model_dataset_path', type=str,
+                      help='Path to the base directory of the dataset containing the depth prediction error labels for a fine-tuned version of the depth estimator. This is used to infer different types of uncertainty and evaluate the uncertainty prediction for each type separately.', default="", required=False)
+
   parser.add_argument('--patch_size', type=int, required=True)
   parser.add_argument('--num_workers', type=int, default=4)
   parser.add_argument('--max_range', type=float,
@@ -556,6 +563,10 @@ def main():
           [7418926.0 / 115252778.0, 107833852.0 / 115252778.0], dtype=float),  # NF, F
   }
 
+  if args.evaluate_for_diff_uncertainty_types and args.refined_model_dataset_path == "":
+    print("ERROR - If you want to evaluate the error predictions separately for different uncertainty types, you should also provide the path to the depth evaluation results of a fine-tuned model (refined_model_dataset_path).")
+    exit()
+
   assert args.patch_dataset_name in test_set_dict, "Invalid dataset name."
   session_num_list = test_set_dict[args.patch_dataset_name]
 
@@ -571,9 +582,13 @@ def main():
       transforms.ToTensor()
   ])
   data_transform_target = data_transform_input
+
+  root_refined_model_dir = args.refined_model_dataset_path if args.evaluate_for_diff_uncertainty_types else None
+
   test_dataset = DepthErrorDataset(args.patch_dataset_path,
                                    args.gt_data_path,
                                    session_num_list,
+                                   root_refined_model_dir=root_refined_model_dir,
                                    loaded_image_color=True,
                                    output_image_color=True,
                                    session_prefix_length=session_prefix_length,
@@ -633,6 +648,17 @@ def main():
   all_binary_labels = np.array([], dtype=np.int_)
   cnf_matrix = np.zeros((2, 2), dtype=np.int_)
   valid_data_points_count = 0
+  # predictions, labels, and confusion matrix for subset of the data that
+  # does not include any instances of epistemic uncertainty
+  all_predictions_non_epistemic = np.array([], dtype=np.int_)
+  all_binary_labels_non_epistemic = np.array([], dtype=np.int_)
+  cnf_matrix_non_epistemic = np.zeros((2, 2), dtype=np.int_)
+  # predictions, labels, and confusion matrix for subset of the data that
+  # does not include any instances of aleatoric uncertainty
+  all_predictions_non_aleatoric = np.array([], dtype=np.int_)
+  all_binary_labels_non_aleatoric = np.array([], dtype=np.int_)
+  cnf_matrix_non_aleatoric = np.zeros((2, 2), dtype=np.int_)
+  valid_data_points_count = 0
 
   # Stores the entropy for all predictions that correspond to in-range depth values
   all_masked_entropy = np.array([], dtype=np.float_)
@@ -659,6 +685,16 @@ def main():
     session_name = session_name_format.format(session_num)
     img_idx = convert_image_name_to_index(
         batch["img_name"][0])
+
+    if args.evaluate_for_diff_uncertainty_types:
+      target_refined_model = batch['labels_refined_model']
+      gt_epistemic_unc_mask = torch.logical_and(
+          target_refined_model == 0, batch['labels'] == 1)
+      gt_aleatoric_unc_mask = torch.logical_and(
+          target_refined_model == 1, batch['labels'] == 1)
+
+      gt_non_epistemic_unc_mask = torch.logical_not(gt_epistemic_unc_mask)
+      gt_non_aleatoric_unc_mask = torch.logical_not(gt_aleatoric_unc_mask)
 
     # Load the predicted depth uncertainty
     unc_image, pred_depth_image = load_predicted_uncertainty(
@@ -723,6 +759,30 @@ def main():
     all_binary_labels = np.concatenate(
         (all_binary_labels, curr_valid_labels), 0)
 
+    # Generate different versions of the labels and predictions via masking out aleatoric and epistemic uncertainty
+    if args.evaluate_for_diff_uncertainty_types:
+      target = torch.unsqueeze(batch["labels"], 1)
+      curr_mask = torch.logical_and(
+          gt_non_epistemic_unc_mask, batch['mask_img'])
+
+      curr_labels_non_epistemic = target[curr_mask].numpy().astype(np.int_)
+      current_pred_non_epistemic = failure_prediction[torch.squeeze(
+          curr_mask).numpy()].astype(np.int_)
+      all_predictions_non_epistemic = np.concatenate(
+          (all_predictions_non_epistemic, current_pred_non_epistemic), 0)
+      all_binary_labels_non_epistemic = np.concatenate(
+          (all_binary_labels_non_epistemic, curr_labels_non_epistemic), 0)
+
+      curr_mask = torch.logical_and(
+          gt_non_aleatoric_unc_mask, batch['mask_img'])
+      curr_labels_non_aleatoric = target[curr_mask].numpy().astype(np.int_)
+      current_pred_non_aleatoric = failure_prediction[torch.squeeze(
+          curr_mask).numpy()].astype(np.int_)
+      all_predictions_non_aleatoric = np.concatenate(
+          (all_predictions_non_aleatoric, current_pred_non_aleatoric), 0)
+      all_binary_labels_non_aleatoric = np.concatenate(
+          (all_binary_labels_non_aleatoric, curr_labels_non_aleatoric), 0)
+
     # Compute Entropy
     # TODO: Handle batch_size > 1
     entropy = np.sum(-failure_prediction_prob *
@@ -747,6 +807,23 @@ def main():
       all_failure_predictions = np.array([], dtype=np.int_)
       all_binary_labels = np.array([], dtype=np.int_)
 
+      if args.evaluate_for_diff_uncertainty_types:
+        cnf_matrix_non_epistemic = cnf_matrix_non_epistemic + confusion_matrix(
+            all_binary_labels_non_epistemic, all_predictions_non_epistemic)
+        print("Current non epistemic confusion matrix:")
+        print(cnf_matrix_non_epistemic)
+
+        cnf_matrix_non_aleatoric = cnf_matrix_non_aleatoric + confusion_matrix(
+            all_binary_labels_non_aleatoric, all_predictions_non_aleatoric)
+        print("Current non aleatoric confusion matrix:")
+        print(cnf_matrix_non_aleatoric)
+
+        # Reset the arrays
+        all_predictions_non_epistemic = np.array([], dtype=np.int_)
+        all_binary_labels_non_epistemic = np.array([], dtype=np.int_)
+        all_predictions_non_aleatoric = np.array([], dtype=np.int_)
+        all_binary_labels_non_aleatoric = np.array([], dtype=np.int_)
+
       # Save the entropy data to file
       entropy_out_dir = os.path.join(args.predictions_base_path, 'entropy')
       if not os.path.exists(entropy_out_dir):
@@ -766,6 +843,13 @@ def main():
                                                all_failure_predictions)
     valid_data_points_count += all_binary_labels.size
 
+    if args.evaluate_for_diff_uncertainty_types:
+      cnf_matrix_non_epistemic = cnf_matrix_non_epistemic + confusion_matrix(
+          all_binary_labels_non_epistemic, all_predictions_non_epistemic)
+
+      cnf_matrix_non_aleatoric = cnf_matrix_non_aleatoric + confusion_matrix(
+          all_binary_labels_non_aleatoric, all_predictions_non_aleatoric)
+
   report = compute_classification_report_from_cnf(cnf_matrix)
 
   print("Classification Report: ")
@@ -779,11 +863,53 @@ def main():
     writer.writeheader()
     writer.writerows(report)
 
+  if args.evaluate_for_diff_uncertainty_types:
+    report_non_epistemic = compute_classification_report_from_cnf(
+        cnf_matrix_non_epistemic)
+    report_non_aleatoric = compute_classification_report_from_cnf(
+        cnf_matrix_non_aleatoric)
+    print("Classification Report Excluding Epistemic Uncertainty: ")
+    print(report_non_epistemic)
+    print("Classification Report Excluding Aleatoric Uncertainty: ")
+    print(report_non_aleatoric)
+    # Save classification report to file
+    report_non_epistemic_file_path = os.path.join(
+        args.predictions_base_path, 'classification_report_non_epistemic' + args.patch_dataset_name +
+        OUTPUT_CNF_NAME_SUFFIX + '.csv')
+    report_non_aleatoric_file_path = os.path.join(
+        args.predictions_base_path, 'classification_report_non_aleatoric' + args.patch_dataset_name +
+        OUTPUT_CNF_NAME_SUFFIX + '.csv')
+    with open(report_non_epistemic_file_path, 'w') as csvfile:
+      print("Writing classification report (excluding epistemic unc.) to file: " +
+            report_non_epistemic_file_path)
+      writer = csv.DictWriter(csvfile, fieldnames=report[0].keys())
+      writer.writeheader()
+      writer.writerows(report_non_epistemic)
+    with open(report_non_aleatoric_file_path, 'w') as csvfile:
+      print("Writing classification report (excluding aleatoric unc.) to file: " +
+            report_non_aleatoric_file_path)
+      writer = csv.DictWriter(csvfile, fieldnames=report[0].keys())
+      writer.writeheader()
+      writer.writerows(report_non_aleatoric)
+
   # Save confusion matrix to file
   cnf_file_path = os.path.join(
       args.predictions_base_path, 'confusion_mat_binary_' + args.patch_dataset_name + OUTPUT_CNF_NAME_SUFFIX + '.csv')
   print("Writing confusion matrix to file: " + cnf_file_path)
   np.savetxt(cnf_file_path, cnf_matrix, delimiter=",", fmt=['%d', '%d'])
+
+  if args.evaluate_for_diff_uncertainty_types:
+    cnf_file_path_non_epistemic = os.path.join(
+        args.predictions_base_path, 'confusion_mat_non_epistemic_binary.csv')
+    print("Writing confusion matrix to file: " + cnf_file_path_non_epistemic)
+    np.savetxt(cnf_file_path_non_epistemic, cnf_matrix_non_epistemic,
+               delimiter=",", fmt=['%d', '%d'])
+
+    cnf_file_path_non_aleatoric = os.path.join(
+        args.predictions_base_path, 'confusion_mat_non_aleatoric_binary.csv')
+    print("Writing confusion matrix to file: " + cnf_file_path_non_aleatoric)
+    np.savetxt(cnf_file_path_non_aleatoric, cnf_matrix_non_aleatoric,
+               delimiter=",", fmt=['%d', '%d'])
 
   # Save the total loss to file
   loss_file_path = os.path.join(args.predictions_base_path, 'NLL_loss_' +
@@ -806,6 +932,18 @@ def main():
       "cnfMat_binary" + args.patch_dataset_name +
       OUTPUT_CNF_NAME_SUFFIX, args.predictions_base_path,
       normalize=True)
+
+  if args.evaluate_for_diff_uncertainty_types:
+    plot_confusion_matrix(
+        cnf_matrix_non_epistemic,
+        ['NF', 'F'],
+        "confusion_mat_non_epistemic_binary", args.predictions_base_path,
+        normalize=True)
+    plot_confusion_matrix(
+        cnf_matrix_non_aleatoric,
+        ['NF', 'F'],
+        "confusion_mat_non_aleatoric_binary", args.predictions_base_path,
+        normalize=True)
 
   # Save the entropy data to file
   entropy_out_dir = os.path.join(args.predictions_base_path, 'entropy')
